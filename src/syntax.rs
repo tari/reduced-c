@@ -1,25 +1,33 @@
-use std::error;
+use std::error::Error as StdError;
 use std::io;
 
 use parser_combinators;
-use parser_combinators::{Parser, ParserExt};
-use parser_combinators::primitives::{State, Stream, ParseResult};
-use parser_combinators::{alpha_num, between, choice, digit, many, many1,
-                         optional, parser, sep_by, space, spaces, string, try};
+
+#[path="parser.rs"]
+pub mod parser;
 
 // Note that rustc currently suffers severe slowdown with deeply nested types;
 // see github.com/rust-lang/issues/21231. To work around that, some of the
 // rules in here (particularly big ones) are written as functions rather than
 // simple local bindings, at the cost of being a bit more verbose.
 
+
 #[derive(Debug)]
 pub enum Error {
-    SyntaxError,
-    Other(Box<error::Error>)
+    /// Line, column, description
+    Syntax(i32, i32, String),
+    Other(Box<StdError>)
 }
 
-impl<E: error::Error + 'static> From<E> for Error {
-    fn from(e: E) -> Error {
+impl From<parser_combinators::ParseError> for Error {
+    fn from(e: parser_combinators::ParseError) -> Error {
+        Error::Syntax(e.position.line, e.position.column,
+                      e.description().to_string())
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
         Error::Other(Box::new(e))
     }
 }
@@ -30,16 +38,6 @@ pub enum Type {
     Int
 }
 
-impl Type {
-    fn decode(s: &str) -> Type {
-        match s {
-            "int" => Type::Int,
-            "void" => Type::Void,
-            _ => panic!("No such type: {}", s)
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct Function {
     returns: Type,
@@ -48,14 +46,7 @@ pub struct Function {
     body: Vec<Statement>
 }
 
-fn identifier<I>() -> parser_combinators::combinator::Many1<String,
-        parser_combinators::char::AlphaNum<I>> where I: Stream<Item=char> {
-    many1::<String, _>(alpha_num())
-    // TODO
-    // .and(not_reserved_word)
-    // .. or just put everything that consumes reserved words first
-}
-
+/*
 impl Function {
     fn parse(src: &str) -> Result<Function, Error> {
 
@@ -95,11 +86,7 @@ impl Function {
         Ok(out)
     }
 }
-
-fn expr<I>() -> parser_combinators::combinator::FnParser<I, fn(State<I>)
-        -> ParseResult<Expression, I>> where I: Stream<Item=char> {
-    parser(Expression::parse)
-}
+*/
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Statement {
@@ -110,6 +97,7 @@ pub enum Statement {
     While(Expression, Vec<Statement>),
 }
 
+/*
 impl Statement {
     fn assignment<I>(input: State<I>) -> ParseResult<Statement, I> where I: Stream<Item=char> {
         identifier()
@@ -181,33 +169,21 @@ impl Statement {
         stmt.parse_state(input)
     }
 }
-
+*/
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expression {
     Literal(i8),
     Variable(String),
 }
 
-impl Expression {
-    fn parse<I>(input: State<I>) -> ParseResult<Expression, I> where I: Stream<Item=char> {
-        let literal = many1::<String, _>(digit())
-            .map(|s| Expression::Literal(s.parse::<i8>().unwrap()));
-        let variable = identifier()
-            .map(|s| Expression::Variable(s));
-
-        let mut expr = try(literal).or(try(variable));
-        expr.parse_state(input)
-    }
-}
-
 pub fn parse<R: io::Read>(input: &mut R) -> Result<Function, Error> {
     let mut s = String::new();
     try!(input.read_to_string(&mut s));
-    Function::parse(&s)
+    parser::parse_str(&s[..])
 }
 
-pub fn parse_str(input: &str) -> Result<Function, Error> {
-    parse(&mut input.as_bytes())
+pub fn parse_str(s: &str) -> Result<Function, Error> {
+    parser::parse_str(s)
 }
 
 #[test]
