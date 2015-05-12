@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use parser_combinators::{Parser, ParserExt, ParseError};
 use parser_combinators::primitives::Error as PError;
 use parser_combinators::primitives::{State, Stream, ParseResult, Consumed};
-use parser_combinators::{sep_by, many, between, parser};
+use parser_combinators::{sep_by, many, between, parser, optional, try, choice};
 
 pub type Token = String;
 
@@ -70,7 +70,8 @@ impl<I> Stream for TokenStream<I> where I: Iterator<Item=char> + Clone {
         enum State {
             Null,
             Whitespace,
-            Word
+            Word,
+            Condition
         }
 
         let mut s = String::new();
@@ -79,14 +80,22 @@ impl<I> Stream for TokenStream<I> where I: Iterator<Item=char> + Clone {
         while continues {
             if let Some(c) = self.iter.peek() {
                 let (c, s) = match (state, c) {
+                    // Coalesce identifier-like things
                     (State::Null, c) |
                     (State::Word, c) if c.is_alphanumeric() || *c == '_' => (true, State::Word),
                     (State::Word, _) => break,
 
+                    // Coalesce whitespace
                     (State::Null, c) |
                     (State::Whitespace, c) if c.is_whitespace() => (true, State::Whitespace),
                     (State::Whitespace, _) => break,
 
+                    // Conditional operations are all one character or end with '='
+                    (State::Null, c) if ['>', '<', '!', '='].contains(c) => (true, State::Condition),
+                    (State::Condition, &'=') => (false, State::Condition),
+                    (State::Condition, _) => break,
+
+                    // Everything else is consumed singly
                     (State::Null, _) => (false, State::Null)
                 };
                 continues = c;
@@ -128,6 +137,8 @@ impl<F, I> Parser for Matches<F, I> where F: FnMut(&Token) -> bool, I: Stream<It
         }
     }
 }
+/*impl<F, I> ParserExt for Matches<F, I>
+    where F: FnMut(&Token) -> bool, I: Stream<Item=Token> { }*/
 
 /// Matches if the predicate returns true, otherwise fails.
 fn matches<F, I>(predicate: F) -> Matches<F, I>
@@ -138,16 +149,16 @@ fn matches<F, I>(predicate: F) -> Matches<F, I>
 struct Literal<I>(&'static str, PhantomData<I>);
 impl<I> Parser for Literal<I> where I: Stream<Item=Token> {
     type Input = I;
-    type Output = ();
+    type Output = Token;
 
-    fn parse_state(&mut self, input: State<I>) -> ParseResult<(), I> {
+    fn parse_state(&mut self, input: State<I>) -> ParseResult<Token, I> {
         let (t, s) = match input.clone().uncons_token() {
             Err(e) => return Err(e),
             Ok(tup) => tup,
         };
 
         if &t[..] == self.0 {
-            Ok(((), s))
+            Ok((t, s))
         } else {
             Err(Consumed::Empty(
                 ParseError::new(input.position,
@@ -230,41 +241,223 @@ fn identifier<I>() -> Identifier<I> where I: Stream<Item=Token> {
     Identifier(PhantomData)
 }
 
+struct SingleExpr<I>(PhantomData<I>);
+impl<I> Parser for SingleExpr<I> where I: Stream<Item=Token> {
+    type Input = I;
+    type Output = super::Expression;
+
+    fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Expression, I> {
+        let integer_literal = matches(|tok| tok.chars().all(|c| c.is_numeric()))
+            .and_then(|s: Token| s.parse::<i8>())
+            .map(super::Expression::Literal);
+        let variable = identifier()
+            .map(super::Expression::Variable);
+
+        integer_literal
+            .or(variable)
+            .parse_state(input)
+    }
+}
+
+struct ArithExpr<I>(PhantomData<I>);
+impl<I> Parser for ArithExpr<I> where I: Stream<Item=Token> {
+    type Input = I;
+    type Output = super::Expression;
+
+    fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Expression, I> {
+        // Stricly left-to-right precedence: the LHS of an operation string
+        // is always a single value, and the RHS may be further operations.
+        // We do it this way to avoid unbounded recursion.
+        let mut arithmetic = SingleExpr::<I>(PhantomData)
+            .and(choice([literal("+"), literal("-")]))
+            .and(expression())
+            .map(|((lhs, op), rhs)| match &op[..] {
+                "+" => super::Expression::Addition(Box::new((lhs, rhs))),
+                "-" => super::Expression::Subtraction(Box::new((lhs, rhs))),
+                _ => unreachable!()
+            });
+
+        arithmetic.parse_state(input)
+    }
+}
+
 struct Expression<I>(PhantomData<I>);
 impl<I> Parser for Expression<I> where I: Stream<Item=Token> {
     type Input = I;
     type Output = super::Expression;
 
     fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Expression, I> {
-        let literal = matches(|tok| tok.chars().all(|c| c.is_numeric()))
-            .map(|s| super::Expression::Literal(s.parse::<i8>().unwrap()));
-        let variable = identifier()
-            .map(super::Expression::Variable);
-
-        literal.or(variable)
+        try(ArithExpr(PhantomData))
+            .or(SingleExpr(PhantomData))
             .parse_state(input)
     }
 }
 
 /// An expression yielding a value.
-fn expression<I>() -> Expression<I>
-        where I: Stream<Item=Token> {
+fn expression<I>() -> Expression<I> where I: Stream<Item=Token> {
     Expression(PhantomData)
 }
 
+#[test]
+fn test_bin_arith_expr() {
+    assert_eq!(tparse(expression(), "1 + 1"),
+        super::Expression::Addition(Box::new(
+            (super::Expression::Literal(1),
+             super::Expression::Literal(1))
+        ))
+    );
+
+    assert_eq!(tparse(expression(), "x - y"),
+        super::Expression::Subtraction(Box::new(
+            (super::Expression::Variable("x".to_string()),
+             super::Expression::Variable("y".to_string()))
+        ))
+    );
+
+    assert_eq!(tparse(expression(), "x - 1 + y"),
+        super::Expression::Subtraction(Box::new(
+            (super::Expression::Variable("x".to_string()),
+             super::Expression::Addition(Box::new(
+                (super::Expression::Literal(1),
+                 super::Expression::Variable("y".to_string()))
+            )))
+        ))
+    );
+}
+
+struct BooleanExpr<I>(PhantomData<I>);
+impl<I> Parser for BooleanExpr<I> where I: Stream<Item=Token> {
+    type Input = I;
+    type Output = super::BooleanExpr;
+
+    fn parse_state(&mut self, input: State<I>) -> ParseResult<super::BooleanExpr, I> {
+        use super::BooleanExpr::*;
+
+        expression()
+            .and(choice([literal("=="), literal("!="),
+                         literal(">="), literal("<="),
+                         literal(">"), literal("<")]))
+            .and(expression())
+            .map(|((lhs, op), rhs)| match &op[..] {
+                "==" => Equal(lhs, rhs),
+                "!=" => NotEqual(lhs, rhs),
+                ">=" => LessOrEqual(rhs, lhs),
+                "<=" => LessOrEqual(lhs, rhs),
+                ">" => Greater(lhs, rhs),
+                "<" => Greater(rhs, lhs),
+                _ => unreachable!()
+            })
+            .parse_state(input)
+    }
+}
+
+fn bool_expr<I>() -> BooleanExpr<I> where I: Stream<Item=Token> {
+    BooleanExpr(PhantomData)
+}
+
 struct Statement<I>(PhantomData<I>);
+struct BlockStatement<I>(PhantomData<I>);
+impl<I> Parser for BlockStatement<I> where I: Stream<Item=Token> {
+    type Input = I;
+    type Output = super::Statement;
+
+    fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Statement, I> {
+        let block = || between(literal("{"), literal("}"),
+            many::<Vec<_>, _>(statement())
+        );
+
+        let conditional = literal("if")
+            .with(between(literal("("), literal(")"), bool_expr()))
+            .and(block())
+            .and(optional(literal("else").with(block())))
+            .map(|((predicate, tb), eb)| super::Statement::Conditional(
+                predicate, tb, eb
+            ));
+
+        let mut while_loop = literal("while")
+            .with(between(literal("("), literal(")"), bool_expr()))
+            .and(block())
+            .map(|(predicate, block)| super::Statement::While(predicate, block));
+
+        while_loop.or(conditional).parse_state(input)
+    }
+}
 impl<I> Parser for Statement<I> where I: Stream<Item=Token> {
     type Input = I;
     type Output = super::Statement;
 
     fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Statement, I> {
-        unimplemented!()
+
+        // TODO initializers only accept literals
+        let declaration = literal("int")
+            .with(identifier())
+            .skip(literal("="))
+            .and(expression())
+            .map(|(ident, expr)| super::Statement::Declaration(ident, expr));
+
+        let assignment = identifier()
+            .skip(literal("="))
+            .and(expression())
+            .map(|(ident, expr)| super::Statement::Assignment(ident, expr));
+
+        let ret = literal("return")
+            .with(expression())
+            .map(super::Statement::Return);
+
+        BlockStatement(PhantomData).or(
+            ret.or(declaration).or(assignment)
+                .skip(literal(";"))
+        ).parse_state(input)
     }
 }
 
 fn statement<I>() -> Statement<I> {
     Statement(PhantomData)
 }
+
+#[test]
+fn test_assign_statement() {
+    assert_eq!(tparse(statement(), "foo = 1;"), super::Statement::Assignment(
+        "foo".to_string(), 
+        super::Expression::Literal(1)
+    ));
+}
+
+#[test]
+fn test_return_statement() {
+    assert_eq!(tparse(statement(), "return 0;"), super::Statement::Return(
+        super::Expression::Literal(0)
+    ));
+}
+
+#[test]
+fn test_conditional_statement() {
+    use super::BooleanExpr::*;
+    use super::Expression::*;
+
+    assert_eq!(tparse(statement(), "if (1 == 1) { }"), super::Statement::Conditional(
+        Equal(Literal(1), Literal(1)),
+        vec![],
+        None
+    ));
+    /*assert_eq!(tparse(statement(), "if (0 != 1) { } else { }"), super::Statement::Conditional(
+        NotEqual(Literal(0), Literal(1)),
+        vec![],
+        Some(vec![])
+    ));*/
+}
+
+#[test]
+fn test_while_statement() {
+    use super::BooleanExpr::*;
+    use super::Expression::*;
+
+    assert_eq!(tparse(statement(), "while (i > 0) { }"), super::Statement::While(
+        Greater(Variable("i".to_string()), Literal(0)),
+        vec![],
+    ));
+}
+
 
 fn function<I>(input: State<I>) -> ParseResult<super::Function, I>
         where I: Stream<Item=Token> {
@@ -277,14 +470,14 @@ fn function<I>(input: State<I>) -> ParseResult<super::Function, I>
         .and(identifier())
         .and(param_list)
         .and(between(literal("{"), literal("}"), many::<Vec<_>, _>(statement())))
-        .map(|(((ty, name), params), body)| {
+        .map(|(((ty, name), params), body)|
             super::Function {
                 returns: ty,
                 name: name,
                 parameters: params,
-                body: vec![]
+                body: body
             }
-        })
+        )
         .parse_state(input)
 }
 
@@ -294,4 +487,10 @@ pub fn parse_str(s: &str) -> Result<super::Function, super::Error> {
 
     let (f, _) = try!(res);
     Ok(f)
+}
+
+#[cfg(test)]
+fn tparse<'a, T, P>(mut parser: P, s: &'a str) -> T
+        where P: Parser<Input=TokenStream<::std::str::Chars<'a>>, Output=T> {
+    parser.parse(TokenStream::new(s.chars())).unwrap().0
 }
