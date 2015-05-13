@@ -253,8 +253,14 @@ impl<I> Parser for SingleExpr<I> where I: Stream<Item=Token> {
         let variable = identifier()
             .map(super::Expression::Variable);
 
-        integer_literal
-            .or(variable)
+        optional(literal("-"))
+            .and(integer_literal
+                .or(variable))
+            .map(|(neg, val)| if neg.is_some() {
+                super::Expression::Negation(Box::new(val))
+            } else {
+                val
+            })
             .parse_state(input)
     }
 }
@@ -321,6 +327,15 @@ fn test_bin_arith_expr() {
                 (super::Expression::Literal(1),
                  super::Expression::Variable("y".to_string()))
             )))
+        ))
+    );
+}
+
+#[test]
+fn test_negation_expr() {
+    assert_eq!(tparse(expression(), "-x"),
+        super::Expression::Negation(Box::new(
+            super::Expression::Variable("x".to_string())
         ))
     );
 }
@@ -440,11 +455,11 @@ fn test_conditional_statement() {
         vec![],
         None
     ));
-    /*assert_eq!(tparse(statement(), "if (0 != 1) { } else { }"), super::Statement::Conditional(
+    assert_eq!(tparse(statement(), "if (0 != 1) { } else { }"), super::Statement::Conditional(
         NotEqual(Literal(0), Literal(1)),
         vec![],
         Some(vec![])
-    ));*/
+    ));
 }
 
 #[test]

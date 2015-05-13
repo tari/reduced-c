@@ -61,6 +61,7 @@ pub enum Expression {
     Variable(String),
     Addition(Box<(Expression, Expression)>),
     Subtraction(Box<(Expression, Expression)>),
+    Negation(Box<Expression>)
 }
 
 #[derive(Debug, PartialEq, Eq)]
