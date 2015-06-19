@@ -5,8 +5,12 @@ extern crate parser_combinators;
 extern crate rustc_serialize;
 
 use docopt::Docopt;
+use std::fs::File;
+use std::io::{Read, BufReader};
 
+pub mod instr;
 pub mod syntax;
+pub mod trans;
 
 static USAGE: &'static str = "
 Usage: rcc [options] <src>
@@ -39,7 +43,24 @@ fn main() {
     StdioLogger::register(loglevel);
     debug!("{:?}", args);
     
-    println!("{:?}", syntax::parser::parse_str("void main() { }"))
+    let infile: Box<Read> = if args.arg_src == "-" {
+        Box::new(std::io::stdin())
+    } else {
+        match File::open(&args.arg_src) {
+            Ok(f) => Box::new(f),
+            Err(e) => {
+                println!("Failed to read {}: {}", args.arg_src, e);
+                return;
+            }
+        }
+    };
+    let ast = match syntax::parse(&mut BufReader::new(infile)) {
+        Ok(t) => t,
+        Err(e) => {
+            println!("{}", e);
+            return;
+        }
+    };
 }
 
 struct StdioLogger(log::LogLevel);

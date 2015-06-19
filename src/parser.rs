@@ -241,20 +241,24 @@ fn identifier<I>() -> Identifier<I> where I: Stream<Item=Token> {
     Identifier(PhantomData)
 }
 
+fn integer_literal<I: Stream<Item=Token>>(input: State<I>) -> ParseResult<super::Expression, I> {
+    matches(|tok| tok.chars().all(|c| c.is_numeric()))
+        .and_then(|s: Token| s.parse::<i8>())
+        .map(super::Expression::Literal)
+        .parse_state(input)
+}
+
 struct SingleExpr<I>(PhantomData<I>);
 impl<I> Parser for SingleExpr<I> where I: Stream<Item=Token> {
     type Input = I;
     type Output = super::Expression;
 
     fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Expression, I> {
-        let integer_literal = matches(|tok| tok.chars().all(|c| c.is_numeric()))
-            .and_then(|s: Token| s.parse::<i8>())
-            .map(super::Expression::Literal);
         let variable = identifier()
             .map(super::Expression::Variable);
 
         optional(literal("-"))
-            .and(integer_literal
+            .and(parser(integer_literal)
                 .or(variable))
             .map(|(neg, val)| if neg.is_some() {
                 super::Expression::Negation(Box::new(val))
@@ -407,7 +411,7 @@ impl<I> Parser for Statement<I> where I: Stream<Item=Token> {
         let declaration = literal("int")
             .with(identifier())
             .skip(literal("="))
-            .and(expression())
+            .and(parser(integer_literal))
             .map(|(ident, expr)| super::Statement::Declaration(ident, expr));
 
         let assignment = identifier()
@@ -428,6 +432,15 @@ impl<I> Parser for Statement<I> where I: Stream<Item=Token> {
 
 fn statement<I>() -> Statement<I> {
     Statement(PhantomData)
+}
+
+#[test]
+fn test_declaration() {
+    assert_eq!(tparse(statement(), "int x = 0;"), super::Statement::Declaration(
+        "x".into(), super::Expression::Literal(0)
+    ));
+    // Initializers must be literal values only.
+    assert!(statement().parse(TokenStream::new("int x = y + z;".chars())).is_err());
 }
 
 #[test]
