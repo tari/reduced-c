@@ -5,32 +5,61 @@ use std::collections::{HashSet, HashMap};
 use std::io::Result as IoResult;
 use std::io::Write;
 
-use super::instr;
+use super::instr::{self, Instruction};
 use super::syntax::{self, Statement, Expression};
 
+///
+///
+/// ## Label names
+///
+/// Labels are named according to the following rules:
+///  * constants: '#[n]<abs>', where 'n' is present for negative values only,
+///    and <abs> is the absolute value of the value.
+///  * locals: '<name>'
+///  * anonymous temporaries: '.t<n>', where <n> is a unique non-negative
+///    sequence number.
+///  * return values: '.RES' (which is okay because a reduced-C program only
+///    ever contains one function).
 struct VariableContext {
     /// Constant values
     constants: HashSet<i8>,
     /// All allocations in the current context, a name and initial value.
-    locals: HashMap<String, i8>
+    locals: HashMap<String, i8>,
+    /// Number of anonymous locals allocated globally (used for computing
+    /// sequence numbers).
+    anon_count: usize,
+    /// Number of jump targets emitted (again for sequence numbers)
+    jump_count: usize,
 }
 
 impl VariableContext {
     fn new() -> VariableContext {
-        unimplemented!()
+        VariableContext {
+            constants: HashSet::new(),
+            locals: HashMap::new()
+        }
     }
 
     /// Create a new variable with the specified name and initial value.
     fn create(&mut self, name: &str, value: i8) -> instr::Label {
-        unimplemented!()
+        // TODO what about shadowing? Still need to do *something* on name
+        // collision even if the entire program is treated as one context.
+        self.locals.insert(name.into(), value);
+        instr::Label::Name(name.into())
     }
 
+    /// Get the label for the variable with the given name.
+    fn get(&mut self, name: &str) -> Option<instr::Label> {
+        self.locals.get(name)
+    }
+
+    /// Get or create a value from the constant pool.
     fn constant(&mut self, value: i8) -> instr::Label {
         self.constants.insert(value);
 
         // Generate a label and return it
         let prefix = if value < 0 {
-            "_"
+            "n"
         } else {
             ""
         };
@@ -40,13 +69,22 @@ impl VariableContext {
 
     /// Create an anonymous local with initial value 0.
     fn anon(&mut self) -> instr::Label {
-        unimplemented!()
+        self.anon_count += 1;
+
+        let label = format!(".t{}", self.anon_count);
+        self.locals.insert(label.clone(), 0).expect("seqnum collision in temporaries");
+        instr::Label::Name(label)
     }
 
     /// Get the label for a function's return value.
     fn function_return(&mut self) -> instr::Label {
         self.locals.insert(".RES".into(), 0);
         instr::Label::Name(".RES".into())
+    }
+
+    fn jump_target(&mut self) -> instr::Label {
+        self.jump_count += 1;
+        instr::Label::Name(format!("_{}", self.jump_count))
     }
 }
 
@@ -82,11 +120,55 @@ pub fn compile(ast: syntax::Function) -> Program {
             }
 
             Statement::Assignment(name, expr) => {
-                expand_expr(expr, context.create(&name), &mut context);
+                let fragment = expand_expr(expr, context.get(&name), &mut context);
+                program.extend(fragment.into_iter());
             }
 
             Statement::Conditional(predicate, then_block, else_block) => {
+                // Lower the predicate to a machine instruction with lhs and rhs
+                let (comparison, lhs, rhs) = match predicate {
+                    BooleanExpr::Greater(l, r) => (Instruction::BranchGreater, l, r),
+                    // Logical inversion of "greater than" is swapping the operands
+                    BooleanExpr::LessOrEqual(l, r) => (Instruction::BranchGreater, r, l),
 
+                    BooleanExpr::NotEqual(l, r) => (Instruction::BranchNotEqual, l, r),
+                    // Logical inversion of "branch if not equal" is swapping the
+                    // `then` and `else` blocks.
+                    BooleanExpr::Equal(l, r) => {
+                        mem::swap(&mut then_block, &mut else_block);
+                        (Instruction::BranchNotEqual, l, r)
+                    }
+                };
+
+                // Evaluate the predicate
+                let lhs_anon = context.anon();
+                program.extend(expand_expr(lhs, lhs_anon, &mut context));
+                let rhs_anon = context.anon();
+                program.extend(expand_expr(rhs, rhs_anon, &mut context));
+
+                let then_label = context.jump_target();
+                let end_label = context.jump_target();
+
+                // Emit comparison and jump. Note that we emit the else block first
+                // because the branches are taken if the comparison succeeds, so
+                // we jump on condition success and fall through otherwise.
+                program.push((None, Instruction::Load(lhs_anon, Register(0))));
+                program.push((None, Instruction::Load(rhs_anon, Register(1))));
+                program.push((None, Instruction::Compare(Register(0), Register(1))));
+                program.push((None, comparison(then_label)));
+
+                // Emit 'else' block
+                program.extend(unimplemented!());
+                program.push((None, Instruction::Jump(end_label)));
+
+                // Emit 'then' block
+                // Set the label on this block. Bit of a hack with NOP insertion, but assume
+                // we can do a peephole optimization later to drop any that appear.
+                program.push((then_label, Instruction::Nop));
+                program.extend(unimplemented!());
+                
+                // Emit the end label
+                program.push((end_label, Instruction::Nop));
             }
 
             Statement::While(predicate, statements) => {
@@ -96,7 +178,7 @@ pub fn compile(ast: syntax::Function) -> Program {
     }
 
     // Code always ends with a halt
-    program.push(Instruction::Halt);
+    program.push((None, Instruction::Halt));
 
     // TODO emit variables into the program image
     unimplemented!()
