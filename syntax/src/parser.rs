@@ -1,14 +1,47 @@
-use std::borrow::Cow;
+use std;
+use std::fmt;
 use std::iter::Peekable;
 use std::marker::PhantomData;
 
-use parser_combinators::{Parser, ParserExt, ParseError};
-use parser_combinators::primitives::Error as PError;
-use parser_combinators::primitives::{State, Stream, ParseResult, Consumed};
-use parser_combinators::{sep_by, many, between, parser, optional, try, choice};
+use combine;
+use combine::{Parser, ParserExt, ParseError};
+use combine::primitives::Error as PError;
+use combine::primitives::{State, Stream, ParseResult, Consumed};
+use combine::{sep_by, many, between, parser, optional, try, choice};
 
-pub type Token = String;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Token {
+    data: String,
+    location: (u32, u32)
+}
 
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "'{}' at {}:{}", self.data, self.location.0, self.location.1)
+    }
+}
+
+impl std::ops::Deref for Token {
+    type Target = String;
+
+    fn deref<'a>(&'a self) -> &'a String {
+        &self.data
+    }
+}
+
+impl combine::primitives::Positioner for Token {
+    type Position = (u32, u32);
+    fn start() -> (u32, u32) {
+        (0, 0)
+    }
+
+    fn update(&self, position: &mut (u32, u32)) {
+        position.0 += self.location.0;
+        position.1 += self.location.1;
+    }
+}
+
+/** Turn a stream of characters into a stream of tokens. **/
 #[derive(Clone)]
 pub struct TokenStream<I> where I: Iterator<Item=char> + Clone {
     iter: Peekable<I>,
@@ -22,50 +55,12 @@ impl<I> TokenStream<I> where I: Iterator<Item=char> + Clone {
     }
 }
 
-trait StateExt<I> {
-    fn uncons_token(self) -> ParseResult<Token, I>;
-}
-
-impl<I> StateExt<I> for State<I> where I: Stream<Item=Token> {
-    /// Get a token, skipping whitespace.
-    fn uncons_token(self) -> ParseResult<Token, I> {
-        let mut state = self;
-        loop {
-            let (tok, consumed) = try!(state.uncons(|pos, tok| {
-                for c in tok.chars() {
-                    pos.column += 1;
-                    if c == '\n' {
-                        pos.column = 1;
-                        pos.line += 1;
-                    }
-                }
-            }));
-
-            debug!("uncons_token {:?}", tok);
-            state = match consumed {
-                Consumed::Empty(s) => return Err(
-                    Consumed::Empty(ParseError::new(s.position, PError::Message("End of input".into())))
-                ),
-                Consumed::Consumed(s) => s
-            };
-
-            // Tokens must be only whitespace or not contain any
-            assert!(tok.chars().all(<char>::is_whitespace)
-                 || tok.chars().all(|c| !c.is_whitespace()));
-            // Yield non-whitespace tokens
-            if !tok.contains(<char>::is_whitespace) {
-                return Ok((tok, Consumed::Consumed(state)));
-            }
-        }
-
-    }
-}
-
-
 impl<I> Stream for TokenStream<I> where I: Iterator<Item=char> + Clone {
     type Item = Token;
+    // TODO ???
+    type Range = Token;
 
-    fn uncons(mut self) -> Result<(Token, TokenStream<I>), ()> {
+    fn uncons(mut self) -> Result<(Token, TokenStream<I>), PError<Token, Token>> {
         #[derive(Debug)]
         enum State {
             Null,
@@ -109,12 +104,52 @@ impl<I> Stream for TokenStream<I> where I: Iterator<Item=char> + Clone {
 
         if s.len() == 0 {
             debug!("TokenStream::uncons: end of input");
-            Err(())
+            Err(PError::end_of_input())
         } else {
-            Ok((s, self))
+            let tok = Token {
+                data: s,
+                // TODO the Stream might need to track source location
+                location: (0, 0)
+            };
+            Ok((tok, self))
         }
     }
 }
+
+trait StateExt<I> {
+    fn uncons_token(self) -> ParseResult<Token, I>;
+}
+
+impl<I> StateExt<I> for State<I> where I: Stream<Item=Token> {
+    /// Get a token, skipping whitespace.
+    fn uncons_token(self) -> ParseResult<Token, I> {
+        let mut state = self;
+        loop {
+            let (tok, consumed) = try!(state.uncons());
+
+            match consumed {
+                Consumed::Empty(_) => return Err(Consumed::Empty(
+                    unimplemented!()
+                )),
+                Consumed::Consumed(s) => {
+                    state = s;
+                }
+            }
+
+            debug!("uncons_token {:?}", tok);
+
+            // Tokens must be only whitespace or not contain any
+            assert!(tok.chars().all(<char>::is_whitespace)
+                 || tok.chars().all(|c| !c.is_whitespace()));
+            // Yield non-whitespace tokens
+            if !tok.contains(<char>::is_whitespace) {
+                return Ok((tok, Consumed::Consumed(state)));
+            }
+        }
+
+    }
+}
+
 
 struct Matches<F, I>(F, PhantomData<I>);
 impl<F, I> Parser for Matches<F, I> where F: FnMut(&Token) -> bool, I: Stream<Item=Token> {
@@ -130,7 +165,7 @@ impl<F, I> Parser for Matches<F, I> where F: FnMut(&Token) -> bool, I: Stream<It
                 } else {
                     Err(Consumed::Empty(
                         ParseError::new(input.position,
-                                        PError::Message(Cow::Borrowed("Predicate not satisfied")))
+                                        PError::Message("predicate failed".into()))
                     ))
                 }
             }
@@ -149,20 +184,20 @@ fn matches<F, I>(predicate: F) -> Matches<F, I>
 struct Literal<I>(&'static str, PhantomData<I>);
 impl<I> Parser for Literal<I> where I: Stream<Item=Token> {
     type Input = I;
-    type Output = Token;
+    type Output = String;
 
-    fn parse_state(&mut self, input: State<I>) -> ParseResult<Token, I> {
+    fn parse_state(&mut self, input: State<I>) -> ParseResult<Self::Output, I> {
         let (t, s) = match input.clone().uncons_token() {
             Err(e) => return Err(e),
             Ok(tup) => tup,
         };
 
         if &t[..] == self.0 {
-            Ok((t, s))
+            Ok((t.data, s))
         } else {
             Err(Consumed::Empty(
                 ParseError::new(input.position,
-                                PError::Expected(Cow::Borrowed(self.0))
+                                PError::Expected(self.0.into())
                 )
             ))
         }
@@ -170,12 +205,6 @@ impl<I> Parser for Literal<I> where I: Stream<Item=Token> {
 }
 
 /// A literal token.
-///
-/// ```
-/// let mut parser = literal("asdf");
-/// assert_eq!(parser.parse(TokenStream::from_str("asdf")),
-///            Ok((), _));
-/// ```
 fn literal<I>(val: &'static str) -> Literal<I> where I: Stream<Item=Token> {
     Literal(val, PhantomData)
 }
@@ -194,9 +223,8 @@ impl<I> Parser for Type<I> where I: Stream<Item=Token> {
                     "int" => super::Type::Int,
                     "void" => super::Type::Void,
                     _ => return Err(Consumed::Empty(
-                            ParseError::new(
-                                input.position,
-                                PError::Expected(Cow::Borrowed("type name"))
+                            ParseError::new(input.position,
+                                            PError::Expected("type name".into())
                             )
                         )
                     )
@@ -215,20 +243,20 @@ fn ty<I>() -> Type<I> where I: Stream<Item=Token> {
 struct Identifier<I>(PhantomData<I>);
 impl<I> Parser for Identifier<I> where I: Stream<Item=Token> {
     type Input = I;
-    type Output = Token;
+    type Output = String;
 
-    fn parse_state(&mut self, input: State<I>) -> ParseResult<Token, I>
+    fn parse_state(&mut self, input: State<I>) -> ParseResult<Self::Output, I>
             where I: Stream<Item=Token> {
         match input.clone().uncons_token() {
             Err(e) => Err(e),
             Ok((t, s)) => {
                 if t.chars().all(|c| c.is_alphanumeric() || c == '_')
                    && !t.starts_with(|c: char| c.is_numeric()) {
-                    Ok((t, s))
+                    Ok((t.data, s))
                 } else {
                     Err(Consumed::Empty(ParseError::new(
                         input.position,
-                        PError::Message(Cow::Borrowed("invalid identifier"))
+                        PError::Message("invalid identifier".into())
                     )))
                 }
             }
@@ -393,7 +421,7 @@ impl<I> Parser for BlockStatement<I> where I: Stream<Item=Token> {
                 predicate, tb, eb
             ));
 
-        let mut while_loop = literal("while")
+        let while_loop = literal("while")
             .with(between(literal("("), literal(")"), bool_expr()))
             .and(block())
             .map(|(predicate, block)| super::Statement::While(predicate, block));
@@ -401,6 +429,7 @@ impl<I> Parser for BlockStatement<I> where I: Stream<Item=Token> {
         while_loop.or(conditional).parse_state(input)
     }
 }
+
 impl<I> Parser for Statement<I> where I: Stream<Item=Token> {
     type Input = I;
     type Output = super::Statement;
@@ -490,7 +519,8 @@ fn test_while_statement() {
 fn function<I>(input: State<I>) -> ParseResult<super::Function, I>
         where I: Stream<Item=Token> {
     let param_list = between(literal("("), literal(")"),
-        sep_by::<Vec<_>, _, _>(ty().and(identifier()),
+        sep_by::<Vec<_>, _, _>(
+            ty().and(identifier()),
             literal(",")
         )
     );
@@ -502,6 +532,7 @@ fn function<I>(input: State<I>) -> ParseResult<super::Function, I>
             super::Function {
                 returns: ty,
                 name: name,
+                // Extract token text
                 parameters: params,
                 body: body
             }
@@ -509,8 +540,8 @@ fn function<I>(input: State<I>) -> ParseResult<super::Function, I>
         .parse_state(input)
 }
 
-pub fn parse_str(s: &str) -> Result<super::Function, super::Error> {
-    let stream = TokenStream::new(s.chars());
+pub fn parse<I: Iterator<Item=char> + Clone>(i: I) -> Result<super::Function, super::Error> {
+    let stream = TokenStream::new(i);
     let res = parser(function).parse(stream);
 
     let (f, _) = try!(res);

@@ -5,11 +5,13 @@ pub type Addr = u8;
 
 #[derive(PartialEq, Eq, Debug)]
 /// A register, such as `Register(0)` for `r0`.
-pub struct Register(u8);
+pub struct Register(pub u8);
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 /// A memory reference.
 pub enum Label {
+    /// No name and address not yet resolved.
+    None,
     /// Known location in memory.
     Address(Addr),
     /// Abstract location, with address not yet resolved.

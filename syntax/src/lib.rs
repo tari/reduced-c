@@ -1,13 +1,13 @@
 //! Abstract syntax tree.
 //!
 //! Defines syntatic constructs and translation of source code into an AST.
-use std;
 use std::error::Error as StdError;
 use std::io;
 
-use parser_combinators;
+extern crate combine;
+#[macro_use]
+extern crate log;
 
-#[path="parser.rs"]
 mod parser;
 
 // Note that rustc currently suffers severe slowdown with deeply nested types;
@@ -19,15 +19,15 @@ mod parser;
 #[derive(Debug)]
 pub enum Error {
     /// Line, column, description
-    Syntax(i32, i32, String),
+    Syntax(String),
     Other(Box<StdError>)
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            Error::Syntax(_, _, ref detail) =>
-                write!(f, "{}", detail),
+            Error::Syntax(ref info) =>
+                write!(f, "{}", info),
             Error::Other(ref e) =>
                 write!(f, "Unspecified parse error: {}", e),
         }
@@ -43,10 +43,10 @@ impl StdError for Error {
     }
 }
 
-impl From<parser_combinators::ParseError> for Error {
-    fn from(e: parser_combinators::ParseError) -> Error {
-        Error::Syntax(e.position.line, e.position.column,
-                      format!("{}", e))
+impl<I> From<combine::ParseError<parser::TokenStream<I>>> for Error
+        where I: Iterator<Item=char> + Clone {
+    fn from(e: combine::ParseError<parser::TokenStream<I>>) -> Error {
+        Error::Syntax(format!("{:?}", e))
     }
 }
 
@@ -124,14 +124,15 @@ pub enum BooleanExpr {
 /// Parse text into a single `Function`.
 pub fn parse<R: io::Read>(input: &mut R) -> Result<Function, Error> {
     let mut s = String::new();
+    // TODO Read::chars is unstable but would be great here
     try!(input.read_to_string(&mut s));
-    let out = parser::parse_str(&s[..]);
+    let out = parser::parse(s.chars());
     debug!("parsed {:?}", out);
     out
 }
 
 pub fn parse_str(s: &str) -> Result<Function, Error> {
-    parser::parse_str(s)
+    parser::parse(s.chars())
 }
 
 #[test]

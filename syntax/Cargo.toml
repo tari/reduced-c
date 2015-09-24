@@ -1,0 +1,10 @@
+[package]
+name = "reduced-c-syntax"
+version = "0.1.0"
+authors = ["Peter Marheine <peter@taricorp.net>"]
+
+[lib]
+
+[dependencies]
+combine = "1"
+log = "0.3"
