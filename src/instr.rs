@@ -1,4 +1,5 @@
 //! Machine representation of instructions.
+use std::fmt;
 
 /// A single memory location
 pub type Addr = u8;
@@ -6,6 +7,15 @@ pub type Addr = u8;
 #[derive(PartialEq, Eq, Debug)]
 /// A register, such as `Register(0)` for `r0`.
 pub struct Register(pub u8);
+
+impl fmt::Display for Register {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            x @ 0 | x @ 1 => write!(f, "r{}", x),
+            x => panic!("Invalid register number: {}", x)
+        }
+    }
+}
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 /// A memory reference.
@@ -16,6 +26,16 @@ pub enum Label {
     Address(Addr),
     /// Abstract location, with address not yet resolved.
     Name(String)
+}
+
+impl fmt::Display for Label {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Label::None => Ok(()),
+            Label::Address(_) => panic!("Bare addresses are not printable"),
+            Label::Name(ref s) => write!(f, "{}", s)
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -64,3 +84,29 @@ pub enum Instruction {
     Value(i8),
 }
 
+use self::Instruction::*;
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Store(ref r, ref l) => write!(f, "store {}, {}", r, l),
+            Load(ref l, ref r) => write!(f, "load {}, {}", l, r),
+            Move(ref s, ref d) => write!(f, "move {}, {}", s, d),
+            Add(ref s1, ref s2, ref d) => write!(f, "add {}, {}, {}", s1, s2, d),
+            Subtract(ref s1, ref s2, ref d) => write!(f, "sub {}, {}, {}", s1, s2, d),
+            And(ref s1, ref s2, ref d) => write!(f, "and {}, {}, {}", s1, s2, d),
+            Or(ref s1, ref s2, ref d) => write!(f, "or {}, {}, {}", s1, s2, d),
+            Nand(ref s1, ref s2, ref d) => write!(f, "nand {}, {}, {}", s1, s2, d),
+            Nor(ref s1, ref s2, ref d) => write!(f, "nor {}, {}, {}", s1, s2, d),
+            Complement(ref s,ref d) => write!(f, "not {}, {}", s, d),
+            Clear(ref r) => write!(f, "clear {}", r),
+            Compare(ref r1, ref r2) => write!(f, "cmp {}, {}", r1, r2),
+            BranchGreater(ref l) => write!(f, "bgt {}", l),
+            BranchNotEqual(ref l) => write!(f, "bne {}", l),
+            Jump(ref l) => write!(f, "jump {}", l),
+            Halt => write!(f, "halt"),
+            Nop => write!(f, "nop"),
+            Value(ref x) => write!(f, "{}", x)
+        }
+    }
+}

@@ -8,7 +8,7 @@ extern crate reduced_c_syntax as syntax;
 
 use docopt::Docopt;
 use std::fs::File;
-use std::io::{Read, Write, BufReader};
+use std::io::{self, Read, Write, BufReader};
 use std::process;
 
 pub mod instr;
@@ -37,9 +37,9 @@ pub fn main() {
         .unwrap_or_else(|e| e.exit());
     debug!("{:?}", args);
     
-    let ref mut stderr = std::io::stderr();
+    let ref mut stderr = io::stderr();
     let infile: Box<Read> = if args.arg_src == "-" {
-        Box::new(std::io::stdin())
+        Box::new(io::stdin())
     } else {
         match File::open(&args.arg_src) {
             Ok(f) => Box::new(f),
@@ -53,12 +53,21 @@ pub fn main() {
     let ast = match syntax::parse(&mut BufReader::new(infile)) {
         Ok(t) => t,
         Err(e) => {
-            write!(stderr, "Parse error: {}", e).unwrap();
+            write!(stderr, "{}", e).unwrap();
             process::exit(1);
         }
     };
 
     let assembly = trans::compile(ast);
-    println!("{:?}", assembly);
+    print_assembly(&assembly, io::stdout()).unwrap();
 }
 
+fn print_assembly<W: Write>(program: &[(instr::Label, instr::Instruction)], mut dest: W) -> io::Result<()> {
+    for &(ref label, ref instruction) in program {
+        if let &instr::Label::Name(_) = label {
+            try!(write!(dest, "{}:\n", label));
+        }
+        try!(write!(dest, "    {}\n", instruction));
+    }
+    Ok(())
+}

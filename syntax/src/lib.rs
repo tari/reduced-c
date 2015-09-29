@@ -2,6 +2,7 @@
 //!
 //! Defines syntatic constructs and translation of source code into an AST.
 use std::error::Error as StdError;
+use std::fmt::Write;
 use std::io;
 
 extern crate combine;
@@ -27,7 +28,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
             Error::Syntax(ref info) =>
-                write!(f, "{}", info),
+                write!(f, "Syntax error {}", info),
             Error::Other(ref e) =>
                 write!(f, "Unspecified parse error: {}", e),
         }
@@ -46,7 +47,11 @@ impl StdError for Error {
 impl<I> From<combine::ParseError<parser::TokenStream<I>>> for Error
         where I: Iterator<Item=char> + Clone {
     fn from(e: combine::ParseError<parser::TokenStream<I>>) -> Error {
-        Error::Syntax(format!("{:?}", e))
+        let mut s = format!("at line {}, column {}. Possible causes:\n", e.position.line, e.position.column);
+        for err in e.errors {
+            write!(s, " * {}\n", err).unwrap();
+        }
+        Error::Syntax(s)
     }
 }
 

@@ -6,18 +6,18 @@ use std::marker::PhantomData;
 use combine;
 use combine::{Parser, ParserExt, ParseError};
 use combine::primitives::Error as PError;
-use combine::primitives::{State, Stream, ParseResult, Consumed};
+use combine::primitives::{State, Stream, ParseResult, Consumed, SourcePosition, Positioner};
 use combine::{sep_by, many, between, parser, optional, try, choice};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
     data: String,
-    location: (u32, u32)
+    //location: SourcePosition
 }
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "'{}' at {}:{}", self.data, self.location.0, self.location.1)
+        write!(f, "{}", self.data)
     }
 }
 
@@ -30,14 +30,17 @@ impl std::ops::Deref for Token {
 }
 
 impl combine::primitives::Positioner for Token {
-    type Position = (u32, u32);
-    fn start() -> (u32, u32) {
-        (0, 0)
+    type Position = SourcePosition;
+    fn start() -> SourcePosition {
+        SourcePosition {
+            line: 1,
+            column: 1
+        }
     }
 
-    fn update(&self, position: &mut (u32, u32)) {
-        position.0 += self.location.0;
-        position.1 += self.location.1;
+    fn update(&self, position: &mut SourcePosition) {
+        debug!("<Token as Positioner>::update({:?}, {:?})", self, position);
+        (&self.data).update(position);
     }
 }
 
@@ -57,7 +60,6 @@ impl<I> TokenStream<I> where I: Iterator<Item=char> + Clone {
 
 impl<I> Stream for TokenStream<I> where I: Iterator<Item=char> + Clone {
     type Item = Token;
-    // TODO ???
     type Range = Token;
 
     fn uncons(mut self) -> Result<(Token, TokenStream<I>), PError<Token, Token>> {
@@ -108,8 +110,6 @@ impl<I> Stream for TokenStream<I> where I: Iterator<Item=char> + Clone {
         } else {
             let tok = Token {
                 data: s,
-                // TODO the Stream might need to track source location
-                location: (0, 0)
             };
             Ok((tok, self))
         }
@@ -151,9 +151,10 @@ impl<I> StateExt<I> for State<I> where I: Stream<Item=Token> {
 }
 
 
-struct Matches<F, I>(F, PhantomData<I>);
-impl<F, I> Parser for Matches<F, I> where F: FnMut(&Token) -> bool, I: Stream<Item=Token> {
+struct Matches<'a, F, I>(F, Option<&'a str>, PhantomData<I>);
+impl<'a, F, I> Parser for Matches<'a, F, I> where F: FnMut(&Token) -> bool, I: Stream<Item=Token> {
     type Input = I;
+    // TODO can add span information to tokens here if necessary.
     type Output = Token;
 
     fn parse_state(&mut self, input: State<I>) -> ParseResult<Token, I> {
@@ -163,22 +164,24 @@ impl<F, I> Parser for Matches<F, I> where F: FnMut(&Token) -> bool, I: Stream<It
                 if (self.0)(&t) {
                     Ok((t, s))
                 } else {
+                    let message = match &self.1 {
+                        &None => "predicate failed",
+                        &Some(s) => s
+                    };
                     Err(Consumed::Empty(
                         ParseError::new(input.position,
-                                        PError::Message("predicate failed".into()))
+                                        PError::Message(message.to_string().into()))
                     ))
                 }
             }
         }
     }
 }
-/*impl<F, I> ParserExt for Matches<F, I>
-    where F: FnMut(&Token) -> bool, I: Stream<Item=Token> { }*/
 
 /// Matches if the predicate returns true, otherwise fails.
-fn matches<F, I>(predicate: F) -> Matches<F, I>
+fn matches<'a, F, I>(predicate: F, message: Option<&'a str>) -> Matches<'a, F, I>
         where F: FnMut(&Token) -> bool, I: Stream<Item=Token> {
-    Matches(predicate, PhantomData)
+    Matches(predicate, message, PhantomData)
 }
 
 struct Literal<I>(&'static str, PhantomData<I>);
@@ -256,7 +259,7 @@ impl<I> Parser for Identifier<I> where I: Stream<Item=Token> {
                 } else {
                     Err(Consumed::Empty(ParseError::new(
                         input.position,
-                        PError::Message("invalid identifier".into())
+                        PError::Message(format!("Invalid identifier '{}'", t.data).into())
                     )))
                 }
             }
@@ -270,7 +273,8 @@ fn identifier<I>() -> Identifier<I> where I: Stream<Item=Token> {
 }
 
 fn integer_literal<I: Stream<Item=Token>>(input: State<I>) -> ParseResult<super::Expression, I> {
-    matches(|tok| tok.chars().all(|c| c.is_numeric()))
+    matches(|tok| tok.chars().all(|c| c.is_numeric()),
+            Some("Integer literal contains non-numeric character(s)"))
         .and_then(|s: Token| s.parse::<i8>())
         .map(super::Expression::Literal)
         .parse_state(input)
@@ -448,6 +452,7 @@ impl<I> Parser for Statement<I> where I: Stream<Item=Token> {
             .and(expression())
             .map(|(ident, expr)| super::Statement::Assignment(ident, expr));
 
+        // TODO would like a diagnostic for `return = expr` since it's a common error.
         let ret = literal("return")
             .with(expression())
             .map(super::Statement::Return);
