@@ -4,7 +4,7 @@ use std::fmt;
 /// A single memory location
 pub type Addr = u8;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 /// A register, such as `Register(0)` for `r0`.
 pub struct Register(pub u8);
 
@@ -38,7 +38,7 @@ impl fmt::Display for Label {
     }
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 /// Machine instructions.
 pub enum Instruction {
     /// Store register to memory.

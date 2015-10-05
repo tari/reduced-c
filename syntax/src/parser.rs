@@ -315,7 +315,8 @@ impl<I> Parser for ArithExpr<I> where I: Stream<Item=Token> {
             .and(expression())
             .map(|((lhs, op), rhs)| match &op[..] {
                 "+" => super::Expression::Addition(Box::new((lhs, rhs))),
-                "-" => super::Expression::Subtraction(Box::new((lhs, rhs))),
+                "-" => super::Expression::Subtraction(Box::new(lhs),
+                                                      Box::new(rhs)),
                 _ => unreachable!()
             });
 

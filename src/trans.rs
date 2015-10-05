@@ -19,6 +19,7 @@ use syntax::{self, Statement, Expression, BooleanExpr, Type};
 ///    sequence number.
 ///  * return values: '.RES' (which is okay because a reduced-C program only
 ///    ever contains one function).
+#[derive(Debug)]
 struct VariableContext {
     /// Constant values
     constants: HashSet<i8>,
@@ -68,6 +69,7 @@ impl<'a> Iterator for IterStatics<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let val = self.state.next();
+        debug!("IterStatics::next {:?} => {:?}", self.ctxt, val);
         if val.is_some() {
             return val;
         } else {
@@ -104,9 +106,10 @@ impl VariableContext {
 
     /// Create a new variable with the specified name and initial value.
     fn create(&mut self, name: &str, value: i8) -> Label {
-        // TODO what about shadowing? Still need to do *something* on name
-        // collision even if the entire program is treated as one context.
-        self.locals.insert(name.into(), value);
+        if self.locals.insert(name.into(), value).is_some() {
+            // TODO better error reporting (not a panic)
+            panic!("Attempted redeclaration of variable '{}'", name);
+        }
         Label::Name(name.into())
     }
 
@@ -138,7 +141,6 @@ impl VariableContext {
         self.anon_count += 1;
 
         let label = format!(".t{}", self.anon_count);
-        self.locals.insert(label.clone(), 0).expect("seqnum collision in temporaries");
         Label::Name(label)
     }
 
@@ -193,9 +195,44 @@ pub fn compile(ast: syntax::Function) -> Program {
 
 /// Expand an expression into a program fragment, with the expression's value
 /// in the given label.
+///
+/// TODO this should probably return a Register reference, since most expansions result
+/// in unnecessary loads and stores when the output is a label. All expressions evaluate
+/// to something that fits in a register anyway.
 fn expand_expr(expr: syntax::Expression, out: Label,
                ctxt: &mut VariableContext) -> Program {
-    unimplemented!()
+    match expr {
+        Expression::Literal(x) => {
+            let lit = ctxt.constant(x);
+            vec![
+                (Label::None, Instruction::Load(lit, Register(0))),
+                (Label::None, Instruction::Store(Register(0), out))
+            ]
+        }
+        Expression::Variable(name) => {
+            let var = match ctxt.get(&name) {
+                Some(label) => label,
+                None => panic!("Referenced undefined variable '{}'", name)
+            };
+            vec![
+                (Label::None, Instruction::Load(var, Register(0))),
+                (Label::None, Instruction::Store(Register(0), out))
+            ]
+        }
+        Expression::Subtraction(lhs, rhs) => {
+            let mut instrs = vec![];
+            let lhs_anon = ctxt.anon();
+            let rhs_anon = ctxt.anon();
+            instrs.extend(expand_expr(*lhs, lhs_anon.clone(), ctxt));
+            instrs.extend(expand_expr(*rhs, rhs_anon.clone(), ctxt));
+            instrs.extend([(Label::None, Instruction::Load(lhs_anon, Register(0))),
+                           (Label::None, Instruction::Load(rhs_anon, Register(1))),
+                           (Label::None, Instruction::Subtract(Register(0), Register(0), Register(1))),
+                           (Label::None, Instruction::Store(Register(0), out))].iter().cloned());
+            instrs
+        }
+        e => panic!("Can't expand expression {:?} yet", e)
+    }
 }
 
 fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instruction)>,
@@ -281,7 +318,69 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
         }
 
         Statement::While(predicate, statements) => {
-            unimplemented!()
+            // Top-of-loop (check predicate)
+            let tol = context.jump_target();
+            // Bottom-of-loop (next statement)
+            let bol = context.jump_target();
+            // Inside-of-loop (inner statements)
+            let iol = context.jump_target();
+
+            /// Emit a sequence to compare the results of evaluating two expressions.
+            ///
+            /// The terminal instruction is a `Compare` of the `lhs` result in `r0`, `rhs`
+            /// in `r1`.
+            fn compare_expanded(lhs: syntax::Expression, rhs: syntax::Expression,
+                                context: &mut VariableContext,
+                                program: &mut Vec<(Label, Instruction)>) {
+                let lhs_anon = context.anon();
+                let rhs_anon = context.anon();
+                program.extend(expand_expr(lhs, lhs_anon.clone(), context));
+                program.extend(expand_expr(rhs, rhs_anon.clone(), context));
+                program.push((Label::None, Instruction::Load(lhs_anon, Register(0))));
+                program.push((Label::None, Instruction::Load(rhs_anon, Register(1))));
+                program.push((Label::None, Instruction::Compare(Register(0), Register(1))));
+            }
+
+            // At ToL, check predicate.
+            program.push((tol.clone(), Instruction::Nop));
+            match predicate {
+                // == and <= are easy, since we have direct inversions as machine instructions.
+                // Jump to BoL if the comparison is false, otherwise fall through to IoL.
+                BooleanExpr::Equal(l, r) => {
+                    compare_expanded(l, r, context, program);
+                    program.push((Label::None, Instruction::BranchNotEqual(bol.clone())));
+                }
+                BooleanExpr::LessOrEqual(l, r) => {
+                    compare_expanded(l, r, context, program);
+                    program.push((Label::None, Instruction::BranchGreater(bol.clone())));
+                }
+
+                BooleanExpr::Greater(l, r) => {
+                    compare_expanded(l, r, context, program);
+                    // Enter loop (IoL) if was indeed greater
+                    program.push((Label::None, Instruction::BranchGreater(iol.clone())));
+                    // Otherwise jump to BoL
+                    program.push((Label::None, Instruction::Jump(bol.clone())));
+                }
+                BooleanExpr::NotEqual(l, r) => {
+                    compare_expanded(l, r, context, program);
+                    // Enter loop if truly not equal
+                    program.push((Label::None, Instruction::BranchNotEqual(iol.clone())));
+                    // Otherwise skip out
+                    program.push((Label::None, Instruction::Jump(bol.clone())));
+                }
+            }
+
+            // Emit loop body
+            program.push((iol, Instruction::Nop));
+            for stmt in statements {
+                expand_statement(stmt, program, context);
+            }
+            // Jump back to ToL
+            program.push((Label::None, Instruction::Jump(tol)));
+
+            // Next statement.
+            program.push((bol, Instruction::Nop));
         }
     }
 }

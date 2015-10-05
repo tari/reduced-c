@@ -67,7 +67,10 @@ fn print_assembly<W: Write>(program: &[(instr::Label, instr::Instruction)], mut 
         if let &instr::Label::Name(_) = label {
             try!(write!(dest, "{}:\n", label));
         }
-        try!(write!(dest, "    {}\n", instruction));
+        match instruction {
+            &instr::Instruction::Nop => { /* nops are only ever generated as filler */ }
+            i => try!(write!(dest, "    {}\n", i))
+        }
     }
     Ok(())
 }

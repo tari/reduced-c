@@ -108,7 +108,7 @@ pub enum Expression {
     /// Sum of two expressions.
     Addition(Box<(Expression, Expression)>),
     /// Difference of two expressions (first minus second).
-    Subtraction(Box<(Expression, Expression)>),
+    Subtraction(Box<Expression>, Box<Expression>),
     /// Negate the value of an expression.
     Negation(Box<Expression>)
 }
