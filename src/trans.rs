@@ -194,45 +194,67 @@ pub fn compile(ast: syntax::Function) -> Program {
 }
 
 /// Expand an expression into a program fragment, with the expression's value
-/// in the given label.
+/// in the given register.
 ///
-/// TODO this should probably return a Register reference, since most expansions result
-/// in unnecessary loads and stores when the output is a label. All expressions evaluate
-/// to something that fits in a register anyway.
-fn expand_expr(expr: syntax::Expression, out: Label,
-               ctxt: &mut VariableContext) -> Program {
+/// The return value is the program fragment and the list of clobbered registers,
+/// excluding the output register.
+fn expand_expr(expr: syntax::Expression, out: Register,
+               ctxt: &mut VariableContext) -> (Program, Vec<Register>) {
     match expr {
         Expression::Literal(x) => {
             let lit = ctxt.constant(x);
-            vec![
-                (Label::None, Instruction::Load(lit, Register(0))),
-                (Label::None, Instruction::Store(Register(0), out))
-            ]
+            (vec![(Label::None, Instruction::Load(lit, out))],
+             vec![])
         }
         Expression::Variable(name) => {
             let var = match ctxt.get(&name) {
                 Some(label) => label,
                 None => panic!("Referenced undefined variable '{}'", name)
             };
-            vec![
-                (Label::None, Instruction::Load(var, Register(0))),
-                (Label::None, Instruction::Store(Register(0), out))
-            ]
+            (vec![(Label::None, Instruction::Load(var, out))],
+             vec![])
         }
         Expression::Subtraction(lhs, rhs) => {
-            let mut instrs = vec![];
-            let lhs_anon = ctxt.anon();
-            let rhs_anon = ctxt.anon();
-            instrs.extend(expand_expr(*lhs, lhs_anon.clone(), ctxt));
-            instrs.extend(expand_expr(*rhs, rhs_anon.clone(), ctxt));
-            instrs.extend([(Label::None, Instruction::Load(lhs_anon, Register(0))),
-                           (Label::None, Instruction::Load(rhs_anon, Register(1))),
-                           (Label::None, Instruction::Subtract(Register(0), Register(0), Register(1))),
-                           (Label::None, Instruction::Store(Register(0), out))].iter().cloned());
-            instrs
+            let mut instrs = expand_expr_pair(*lhs, *rhs, ctxt);
+            instrs.push((Label::None, Instruction::Subtract(out, Register(0), Register(1))));
+            // Binary operations always use both regs
+            (instrs,
+             [Register(0), Register(1)].iter().cloned().filter(|&r| r != out).collect())
         }
         e => panic!("Can't expand expression {:?} yet", e)
     }
+}
+
+/// Expand `expr1` into `Register(0)` and `expr2` into `Register(1)`, attempting to
+/// minimize spills.
+fn expand_expr_pair(expr1: Expression, expr2: Expression,
+                    ctxt: &mut VariableContext) -> Program {
+    let mut instrs: Program;
+    let (lhs_frag, lhs_clob) = expand_expr(expr1, Register(0), ctxt);
+    let (rhs_frag, rhs_clob) = expand_expr(expr2, Register(1), ctxt);
+
+    match (lhs_clob.contains(&Register(1)),
+           rhs_clob.contains(&Register(0))) {
+        (false, false) | (true, false) => {
+            // Compute LHS then RHS. No spills necessary.
+            instrs = lhs_frag;
+            instrs.extend(rhs_frag);
+        }
+        (false, true) => {
+            // Compute RHS then LHS, avoiding a spill.
+            instrs = rhs_frag;
+            instrs.extend(lhs_frag);
+        }
+        (true, true) => {
+            // Compute LHS then RHS, with required spill
+            let spill = ctxt.anon();
+            instrs = lhs_frag;
+            instrs.push((Label::None, Instruction::Store(Register(0), spill.clone())));
+            instrs.extend(rhs_frag);
+            instrs.push((Label::None, Instruction::Load(spill, Register(0))));
+        }
+    }
+    instrs
 }
 
 fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instruction)>,
@@ -248,14 +270,16 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
 
         Statement::Return(expr) => {
             let result = context.function_return();
-            let fragment = expand_expr(expr, result, context);
-            program.extend(fragment.into_iter());
+            let (fragment, _) = expand_expr(expr, Register(0), context);
+            program.extend(fragment);
+            program.push((Label::None, Instruction::Store(Register(0), result)));
         }
 
         Statement::Assignment(name, expr) => {
             let var = context.get(&name).expect("Variable used before declaration.");
-            let fragment = expand_expr(expr, var, context);
-            program.extend(fragment.into_iter());
+            let (fragment, _) = expand_expr(expr, Register(0), context);
+            program.extend(fragment);
+            program.push((Label::None, Instruction::Store(Register(0), var)));
         }
 
         Statement::Conditional(predicate, then_block, mut else_block) => {
@@ -278,20 +302,14 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
                 }
             };
 
-            // Evaluate the predicate
-            let lhs_anon = context.anon();
-            program.extend(expand_expr(lhs, lhs_anon.clone(), context));
-            let rhs_anon = context.anon();
-            program.extend(expand_expr(rhs, rhs_anon.clone(), context));
-
             let then_label = context.jump_target();
             let end_label = context.jump_target();
 
+            // Evaluate the predicate
+            program.extend(expand_expr_pair(lhs, rhs, context));
             // Emit comparison and jump. Note that we emit the else block first
             // because the branches are taken if the comparison succeeds, so
             // we jump on condition success and fall through otherwise.
-            program.push((Label::None, Instruction::Load(lhs_anon, Register(0))));
-            program.push((Label::None, Instruction::Load(rhs_anon, Register(1))));
             program.push((Label::None, Instruction::Compare(Register(0), Register(1))));
             program.push((Label::None, comparison(then_label.clone())));
 
@@ -332,12 +350,7 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             fn compare_expanded(lhs: syntax::Expression, rhs: syntax::Expression,
                                 context: &mut VariableContext,
                                 program: &mut Vec<(Label, Instruction)>) {
-                let lhs_anon = context.anon();
-                let rhs_anon = context.anon();
-                program.extend(expand_expr(lhs, lhs_anon.clone(), context));
-                program.extend(expand_expr(rhs, rhs_anon.clone(), context));
-                program.push((Label::None, Instruction::Load(lhs_anon, Register(0))));
-                program.push((Label::None, Instruction::Load(rhs_anon, Register(1))));
+                program.extend(expand_expr_pair(lhs, rhs, context));
                 program.push((Label::None, Instruction::Compare(Register(0), Register(1))));
             }
 

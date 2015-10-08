@@ -8,6 +8,8 @@ pub type Addr = u8;
 /// A register, such as `Register(0)` for `r0`.
 pub struct Register(pub u8);
 
+impl Copy for Register {}
+
 impl fmt::Display for Register {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
