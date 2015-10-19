@@ -106,7 +106,7 @@ pub enum Expression {
     /// The value of a previously-declared variable.
     Variable(String),
     /// Sum of two expressions.
-    Addition(Box<(Expression, Expression)>),
+    Addition(Box<Expression>, Box<Expression>),
     /// Difference of two expressions (first minus second).
     Subtraction(Box<Expression>, Box<Expression>),
     /// Negate the value of an expression.

@@ -1,0 +1,22 @@
+
+type        = 'int' | 'void'
+identifier  = [a-zA-Z_][a-zA-Z0-9_]*
+literal     = [0-9]+
+
+statement   = declaration | assignment | return | conditional | while
+
+declaration = 'int' identifier '=' literal ';'
+assignment  = identifier '=' expr ';'
+return      = 'return' expr ';'
+conditional = 'if' '(' bool_expr ')'
+              '{' statement* '}'
+              ('else' '{' statement* '}')?
+while       = 'while' '(' bool_expr ')'
+              '{' statement* '}'
+
+simple_expr = identifier | literal
+expr        = simple_expr | expr '+' expr | expr '-' expr | '-' expr
+bool_expr   = simple_expr ('>' | '<' | '>=' | '<=' | '==' | '!=') simple_expr
+
+function    = type identifier '(' ('int' identifier)*, ')'
+              '{' statement* '}'

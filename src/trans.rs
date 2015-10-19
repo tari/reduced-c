@@ -5,7 +5,7 @@ use std::collections::{hash_set, HashSet, hash_map, HashMap};
 use std::ops::Range;
 
 use super::instr::{self, Instruction, Register, Label};
-use syntax::{self, Statement, Expression, BooleanExpr, Type};
+use syntax::{self, Statement, Expression, BooleanExpr};
 
 ///
 ///
@@ -150,9 +150,9 @@ impl VariableContext {
         Label::Name(".RES".into())
     }
 
-    fn jump_target(&mut self) -> Label {
+    fn jump_target(&mut self, suffix: &'static str) -> Label {
         self.jump_count += 1;
-        Label::Name(format!("_{}", self.jump_count))
+        Label::Name(format!("_{}_{}", self.jump_count, suffix))
     }
 }
 
@@ -185,11 +185,6 @@ pub fn compile(ast: syntax::Function) -> Program {
         (Label::Name(label), Instruction::Value(x))
     }));
 
-    // If function returns non-void, allocate return value.
-    if ast.returns != Type::Void {
-        program.push((Label::Name(".RES".into()), Instruction::Value(0)));
-    }
-
     program
 }
 
@@ -200,6 +195,11 @@ pub fn compile(ast: syntax::Function) -> Program {
 /// excluding the output register.
 fn expand_expr(expr: syntax::Expression, out: Register,
                ctxt: &mut VariableContext) -> (Program, Vec<Register>) {
+    /// All registers except `reg`.
+    fn all_except(reg: Register) -> Vec<Register> {
+        [Register(0), Register(1)].iter().cloned().filter(|&r| r != reg).collect()
+    }
+
     match expr {
         Expression::Literal(x) => {
             let lit = ctxt.constant(x);
@@ -216,12 +216,22 @@ fn expand_expr(expr: syntax::Expression, out: Register,
         }
         Expression::Subtraction(lhs, rhs) => {
             let mut instrs = expand_expr_pair(*lhs, *rhs, ctxt);
-            instrs.push((Label::None, Instruction::Subtract(out, Register(0), Register(1))));
+            instrs.push((Label::None, Instruction::Subtract(Register(0), Register(1), out)));
             // Binary operations always use both regs
-            (instrs,
-             [Register(0), Register(1)].iter().cloned().filter(|&r| r != out).collect())
+            (instrs, all_except(out))
         }
-        e => panic!("Can't expand expression {:?} yet", e)
+        Expression::Addition(lhs, rhs) => {
+            let mut instrs = expand_expr_pair(*lhs, *rhs, ctxt);
+            instrs.push((Label::None, Instruction::Add(Register(0), Register(1), out)));
+            (instrs, all_except(out))
+        }
+        Expression::Negation(op) => {
+            let (mut instrs, _) = expand_expr(*op, Register(1), ctxt);
+            // Subtract the operand from zero
+            instrs.push((Label::None, Instruction::Clear(Register(0))));
+            instrs.push((Label::None, Instruction::Subtract(Register(0), Register(1), out)));
+            (instrs, all_except(out))
+        }
     }
 }
 
@@ -290,8 +300,11 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             let (comparison, lhs, rhs): (fn(Label) -> Instruction, Expression, Expression)
                      = match predicate {
                 BooleanExpr::Greater(l, r) => (Instruction::BranchGreater, l, r),
-                // Logical inversion of "greater than" is swapping the operands
-                BooleanExpr::LessOrEqual(l, r) => (Instruction::BranchGreater, r, l),
+                // Logical inversion of "greater than" is swapping the `then` and `else` blocks
+                BooleanExpr::LessOrEqual(l, r) => {
+                    std::mem::swap(&mut then_block, &mut else_block);
+                    (Instruction::BranchGreater, l, r)
+                }
 
                 BooleanExpr::NotEqual(l, r) => (Instruction::BranchNotEqual, l, r),
                 // Logical inversion of "branch if not equal" is swapping the
@@ -302,8 +315,8 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
                 }
             };
 
-            let then_label = context.jump_target();
-            let end_label = context.jump_target();
+            let then_label = context.jump_target("t");
+            let end_label = context.jump_target("ei");
 
             // Evaluate the predicate
             program.extend(expand_expr_pair(lhs, rhs, context));
@@ -337,11 +350,11 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
 
         Statement::While(predicate, statements) => {
             // Top-of-loop (check predicate)
-            let tol = context.jump_target();
+            let tol = context.jump_target("w");
             // Bottom-of-loop (next statement)
-            let bol = context.jump_target();
+            let bol = context.jump_target("ew");
             // Inside-of-loop (inner statements)
-            let iol = context.jump_target();
+            let iol = context.jump_target("iw");
 
             /// Emit a sequence to compare the results of evaluating two expressions.
             ///

@@ -129,7 +129,11 @@ impl<I> StateExt<I> for State<I> where I: Stream<Item=Token> {
 
             match consumed {
                 Consumed::Empty(_) => return Err(Consumed::Empty(
-                    unimplemented!()
+                    // XXX bogus position
+                    ParseError::end_of_input(SourcePosition {
+                        line: 0,
+                        column: 0
+                    })
                 )),
                 Consumed::Consumed(s) => {
                     state = s;
@@ -314,7 +318,8 @@ impl<I> Parser for ArithExpr<I> where I: Stream<Item=Token> {
             .and(choice([literal("+"), literal("-")]))
             .and(expression())
             .map(|((lhs, op), rhs)| match &op[..] {
-                "+" => super::Expression::Addition(Box::new((lhs, rhs))),
+                "+" => super::Expression::Addition(Box::new(lhs),
+                                                   Box::new(rhs)),
                 "-" => super::Expression::Subtraction(Box::new(lhs),
                                                       Box::new(rhs)),
                 _ => unreachable!()

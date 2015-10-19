@@ -13,6 +13,7 @@ use std::process;
 
 pub mod instr;
 pub mod trans;
+pub mod opt;
 
 static USAGE: &'static str = "
 Usage: rcc [options] <src>
@@ -58,7 +59,8 @@ pub fn main() {
         }
     };
 
-    let assembly = trans::compile(ast);
+    let mut assembly = trans::compile(ast);
+    opt::optimize(&mut assembly);
     print_assembly(&assembly, io::stdout()).unwrap();
 }
 
