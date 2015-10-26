@@ -12,6 +12,8 @@ body {
 .code {
     width: 100%;
     height: 20em;
+}
+#objectcode {
     resize: vertical;
 }
 code {
@@ -153,6 +155,9 @@ else {
             req.setRequestHeader('Content-Length', code.length);
             req.send(code);
         }
+
+        button.disabled = false;
+        objectcode.value = '';
     </script>
 </body>
 </html>
