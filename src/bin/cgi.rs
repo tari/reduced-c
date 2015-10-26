@@ -22,7 +22,7 @@ fn main() {
     match compiler::compile(stdin.take(content_length)) {
         Ok(p) => {
             print!("Status: 200 OK\r\n\r\n");
-            compiler::print_assembly(&p, io::stdout());
+            let _ = compiler::print_assembly(&p, io::stdout());
         }
         Err(e) => {
             print!("Status: 400 Bad Request\r\n\r\n");

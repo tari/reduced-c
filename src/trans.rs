@@ -30,6 +30,8 @@ struct VariableContext {
     anon_count: usize,
     /// Number of jump targets emitted (again for sequence numbers)
     jump_count: usize,
+    /// Return type of the function
+    return_type: syntax::Type
 }
 
 enum IterStaticsState<'a> {
@@ -88,12 +90,13 @@ impl<'a> Iterator for IterStatics<'a> {
 
 
 impl VariableContext {
-    fn new() -> VariableContext {
+    fn new(rtype: syntax::Type) -> VariableContext {
         VariableContext {
             constants: HashSet::new(),
             locals: HashMap::new(),
             anon_count: 0,
-            jump_count: 0
+            jump_count: 0,
+            return_type: rtype
         }
     }
 
@@ -147,9 +150,15 @@ impl VariableContext {
     }
 
     /// Get the label for a function's return value.
-    fn function_return(&mut self) -> Label {
+    fn function_return(&mut self) -> Result<Label, Error> {
+        // TODO Not a great place to do this check.. Probably best to actually
+        // walk the AST and search for Return.
+        if self.return_type == syntax::Type::Void {
+            return Err(Error("Function returning void must not return a value".into()));
+        }
+
         self.locals.insert(".RES".into(), 0);
-        Label::Name(".RES".into())
+        Ok(Label::Name(".RES".into()))
     }
 
     fn jump_target(&mut self, suffix: &'static str) -> Label {
@@ -164,7 +173,7 @@ pub type Program = Vec<(Label, instr::Instruction)>;
 pub struct Error(pub String);
 
 pub fn compile(ast: syntax::Function) -> Result<Program, Error> {
-    let mut context = VariableContext::new();
+    let mut context = VariableContext::new(ast.returns);
     let mut program: Program = vec![];
 
     // Create function parameters.
@@ -294,7 +303,7 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
         }
 
         Statement::Return(expr) => {
-            let result = context.function_return();
+            let result = try!(context.function_return());
             let (fragment, _) = try!(expand_expr(expr, Register(0), context));
             program.extend(fragment);
             program.push((Label::None, Instruction::Store(Register(0), result)));
