@@ -4,16 +4,12 @@ extern crate env_logger;
 extern crate log;
 extern crate rustc_serialize;
 
-extern crate reduced_c_syntax as syntax;
+extern crate reduced_c as compiler;
 
 use docopt::Docopt;
 use std::fs::File;
 use std::io::{self, Read, Write, BufReader};
 use std::process;
-
-pub mod instr;
-pub mod trans;
-pub mod opt;
 
 static USAGE: &'static str = "
 Usage: rcc [options] <src>
@@ -45,34 +41,19 @@ pub fn main() {
         match File::open(&args.arg_src) {
             Ok(f) => Box::new(f),
             Err(e) => {
-                println!("Failed to read {}: {}", args.arg_src, e);
-                return;
+                write!(stderr, "Failed to read {}: {}\n", args.arg_src, e).unwrap();
+                process::exit(1);
             }
         }
     };
 
-    let ast = match syntax::parse(&mut BufReader::new(infile)) {
-        Ok(t) => t,
+    match compiler::compile(BufReader::new(infile)) {
         Err(e) => {
-            write!(stderr, "{}", e).unwrap();
+            write!(stderr, "{}\n", e).unwrap();
             process::exit(1);
         }
-    };
-
-    let mut assembly = trans::compile(ast);
-    opt::optimize(&mut assembly);
-    print_assembly(&assembly, io::stdout()).unwrap();
-}
-
-fn print_assembly<W: Write>(program: &[(instr::Label, instr::Instruction)], mut dest: W) -> io::Result<()> {
-    for &(ref label, ref instruction) in program {
-        if let &instr::Label::Name(_) = label {
-            try!(write!(dest, "{}:\n", label));
-        }
-        match instruction {
-            &instr::Instruction::Nop => { /* nops are only ever generated as filler */ }
-            i => try!(write!(dest, "    {}\n", i))
+        Ok(assembly) => {
+            compiler::print_assembly(&assembly, io::stdout()).unwrap();
         }
     }
-    Ok(())
 }

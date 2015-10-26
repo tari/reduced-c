@@ -3,6 +3,11 @@ name = "reduced-c"
 version = "0.1.0"
 authors = ["Peter Marheine <peter@taricorp.net>"]
 
+[profile.release]
+lto = true
+
+[lib]
+
 [dependencies.reduced-c-syntax]
 # In its own subcrate to avoid slow recompiles
 path = "syntax"
