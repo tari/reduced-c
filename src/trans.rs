@@ -17,7 +17,7 @@ use syntax::{self, Statement, Expression, BooleanExpr};
 ///  * locals: '<name>'
 ///  * anonymous temporaries: '.t<n>', where <n> is a unique non-negative
 ///    sequence number.
-///  * return values: '.RES' (which is okay because a reduced-C program only
+///  * return values: '_RES' (which is okay because a reduced-C program only
 ///    ever contains one function).
 #[derive(Debug)]
 struct VariableContext {
@@ -157,8 +157,8 @@ impl VariableContext {
             return Err(Error("Function returning void must not return a value".into()));
         }
 
-        self.locals.insert(".RES".into(), 0);
-        Ok(Label::Name(".RES".into()))
+        self.locals.insert("_RES".into(), 0);
+        Ok(Label::Name("_RES".into()))
     }
 
     fn jump_target(&mut self, suffix: &'static str) -> Label {
@@ -363,11 +363,12 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
                     try!(expand_statement(stmt, program, context));
                 }
             }
-            program.push((Label::None, Instruction::Jump(end_label.clone())));
+            // Omit jump and labels if 'then' block contains no instructions.
+            if then_block.as_ref().map_or(0, Vec::len) != 0 {
+                program.push((Label::None, Instruction::Jump(end_label.clone())));
+            }
 
             // Emit 'then' block
-            // Set the label on this block. Bit of a hack with NOP insertion, but assume
-            // we can do a peephole optimization later to drop any that appear.
             program.push((then_label, Instruction::Nop));
             if let Some(block) = then_block {
                 for stmt in block {
