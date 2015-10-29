@@ -363,10 +363,7 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
                     try!(expand_statement(stmt, program, context));
                 }
             }
-            // Omit jump and labels if 'then' block contains no instructions.
-            if then_block.as_ref().map_or(0, Vec::len) != 0 {
-                program.push((Label::None, Instruction::Jump(end_label.clone())));
-            }
+            program.push((Label::None, Instruction::Jump(end_label.clone())));
 
             // Emit 'then' block
             program.push((then_label, Instruction::Nop));
