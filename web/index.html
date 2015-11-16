@@ -151,8 +151,8 @@ else {
                 objectcode.value = req.responseText;
             };
             req.open('POST', 'cgi-bin/rcc.cgi');
-            req.setRequestHeader('Content-Type', 'text/plain');
-            req.setRequestHeader('Content-Length', code.length);
+            // Page encoding is utf-8 so this is correct.
+            req.setRequestHeader('Content-Type', 'text/plain; charset=UTF-8');
             req.send(code);
         }
 
