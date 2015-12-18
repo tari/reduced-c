@@ -446,13 +446,6 @@ impl<I> Parser for Statement<I> where I: Stream<Item=Token> {
 
     fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Statement, I> {
 
-        // TODO initializers only accept literals
-        let declaration = literal("int")
-            .with(identifier())
-            .skip(literal("="))
-            .and(parser(integer_literal))
-            .map(|(ident, expr)| super::Statement::Declaration(ident, expr));
-
         let assignment = identifier()
             .skip(literal("="))
             .and(expression())
@@ -464,8 +457,7 @@ impl<I> Parser for Statement<I> where I: Stream<Item=Token> {
             .map(super::Statement::Return);
 
         BlockStatement(PhantomData).or(
-            ret.or(declaration).or(assignment)
-                .skip(literal(";"))
+            ret.or(assignment).skip(literal(";"))
         ).parse_state(input)
     }
 }
@@ -535,19 +527,29 @@ fn function<I>(input: State<I>) -> ParseResult<super::Function, I>
             literal(",")
         )
     );
+    let declaration = literal("int")
+        .with(identifier())
+        .skip(literal("="))
+        .and(parser(integer_literal))
+        .map(|(ident, expr)| super::Statement::Declaration(ident, expr));
+
     ty()
         .and(identifier())
         .and(param_list)
-        .and(between(literal("{"), literal("}"), many::<Vec<_>, _>(statement())))
-        .map(|(((ty, name), params), body)|
+        .and(between(literal("{"), literal("}"), 
+            many::<Vec<_>, _>(declaration).and(many::<Vec<_>, _>(statement()))))
+        .map(|(((ty, name), params), (mut decls, body))| {
+            // Declarations must be first in function body, but are parsed
+            // as any other statement.
+            decls.extend(body);
             super::Function {
                 returns: ty,
                 name: name,
                 // Extract token text
                 parameters: params,
-                body: body
+                body: decls
             }
-        )
+        })
         .parse_state(input)
 }
 

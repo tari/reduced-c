@@ -45,7 +45,7 @@ fn eliminate_noplike_jumps(program: &mut [(Label, Instruction)]) {
     loop {
         let mut modified = false;
 
-        for i in (0..program.len()) {
+        for i in 0..program.len() {
             // Find a branch and record its target
             let target_label = {
                 let (_, ref mut instruction) = program[i];

@@ -442,15 +442,3 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
         }
     }
 }
-
-#[test]
-fn empty_program() {
-    assert_eq!(compile(syntax::Function {
-            returns: Type::Void,
-            name: "main".into(),
-            parameters: vec![],
-            body: vec![]
-        }),
-        [(Label::None, Instruction::Halt)]
-    );
-}
