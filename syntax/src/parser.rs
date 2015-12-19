@@ -116,7 +116,7 @@ impl<I> Stream for TokenStream<I> where I: Iterator<Item=char> + Clone {
     }
 }
 
-trait StateExt<I> {
+trait StateExt<I: combine::primitives::Stream> {
     fn uncons_token(self) -> ParseResult<Token, I>;
 }
 
@@ -531,6 +531,7 @@ fn function<I>(input: State<I>) -> ParseResult<super::Function, I>
         .with(identifier())
         .skip(literal("="))
         .and(parser(integer_literal))
+        .skip(literal(";"))
         .map(|(ident, expr)| super::Statement::Declaration(ident, expr));
 
     ty()
