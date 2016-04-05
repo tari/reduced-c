@@ -49,10 +49,18 @@ impl From<trans::Error> for CompileError {
 }
 
 pub fn compile<R: Read>(mut src: R) -> Result<Vec<(instr::Label, instr::Instruction)>, CompileError> {
+    debug!("Beginning parse");
     let ast = try!(syntax::parse(&mut src));
+    debug!("Finished parsing source code");
 
+    debug!("Beginning compilation");
     let mut assembly = try!(trans::compile(ast));
+    debug!("Completed compilation to {} instructions", assembly.len());
+
+    debug!("Beginning optimization");
     opt::optimize(&mut assembly);
+    debug!("Completed optimization to {} instructions", assembly.len());
+
     Ok(assembly)
 }
 

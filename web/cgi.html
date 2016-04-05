@@ -9,6 +9,9 @@ body {
     max-width: 40em;
     margin: 0 auto;
 }
+.hidden {
+    display: none;
+}
 .code {
     width: 100%;
     height: 20em;
@@ -31,10 +34,12 @@ pre {
 
 <body>
     <h2>Source code</h2>
-    <div class="code" id="sourcecode">void main() {}</div>
+    <div class="code" id="sourcecode"></div>
     <button id="compile">Compile</button>
+    <img alt="Working.." id="throbber" src="throbber.svg" class="hidden" />
     <h2>Object code</h2>
-    <textarea class="code" id="objectcode" readonly="true" autocomplete="false"></textarea>
+    <textarea class="code" id="objectcode" readonly="true" autocomplete="false"
+        placeholder="Compiler output will appear here."></textarea>
     <h2>Language reference</h2>
     <!-- LANGUAGE.html -->
 <p>A program consists of a single function definition.</p>
@@ -135,20 +140,42 @@ else {
         var editor = ace.edit('sourcecode');
         var button = document.getElementById('compile');
         var objectcode = document.getElementById('objectcode');
+        var throbber = document.getElementById('throbber');
         editor.getSession().setMode('ace/mode/c_cpp');
 
         editor.getSession().on('change', function(e) {
             button.disabled = false;
         });
 
+        // Show a placeholder message if there is nothing in the editor.
+        // From https://stackoverflow.com/questions/26695708/
+        function update() {
+            var shouldShow = !editor.session.getValue().length;
+            var node = editor.renderer.emptyMessageNode;
+            if (!shouldShow && node) {
+                editor.renderer.scroller.removeChild(editor.renderer.emptyMessageNode);
+                editor.renderer.emptyMessageNode = null;
+            } else if (shouldShow && !node) {
+                node = editor.renderer.emptyMessageNode = document.createElement("div");
+                node.textContent = "Enter your code here.";
+                node.className = "ace_invisible ace_emptyMessage";
+                node.style.padding = "0 1rem";
+                editor.renderer.scroller.appendChild(node);
+            }
+        }
+        editor.on('input', update);
+        setTimeout(update, 100);
+
         document.getElementById('compile').onclick = function() {
             button.disabled = true;
+            throbber.className = '';
             var code = editor.getValue();
 
             var req = new XMLHttpRequest();
             req.onload = function(e) {
                 var code = req.status;
                 objectcode.value = req.responseText;
+                throbber.className = 'hidden';
             };
             req.open('POST', 'cgi-bin/rcc.cgi');
             // Page encoding is utf-8 so this is correct.
@@ -156,7 +183,6 @@ else {
             req.send(code);
         }
 
-        button.disabled = false;
         objectcode.value = '';
     </script>
 </body>

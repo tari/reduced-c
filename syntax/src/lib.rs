@@ -130,7 +130,9 @@ pub enum BooleanExpr {
 pub fn parse<R: io::Read>(input: &mut R) -> Result<Function, Error> {
     let mut s = String::new();
     // TODO Read::chars is unstable but would be great here
+    trace!("Reading source to string");
     try!(input.read_to_string(&mut s));
+    debug!("Read {} characters from source code", s.len());
     let out = parser::parse(s.chars());
     debug!("parsed {:?}", out);
     out
