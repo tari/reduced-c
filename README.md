@@ -21,11 +21,20 @@ This will build (mostly) static binaries under a `target` directory. Due to some
 inefficiencies in `rustc`, `reduced-c-syntax` can take a long time to compile-
 about four minutes on my reasonably-fast laptop.
 
-### Javascript
+### Web
+
+Binaries are provided for both the command-line compiler (`rcc`) and a CGI
+script suitable for running the compiler as a web service (`cgi`). For
+convenience, the included Makefile will build zip files for the CGI script and
+an HTML interface, as well as a pure-Javascript version that does not require
+any special server support.
 
 For targeting javascript, you'll need a version of rustc with support for the
 `asmjs-unknown-emscripten` target. Currently, that means [building it from
-source with some patches][rust-internals-emscripten].
+source with some patches][rust-internals-emscripten]. Ensure that version of
+rustc is the one that will run when you invoke `rustc`, or set the `RUSTC`
+environment variable to point to it. It also requires that the emscripten tools
+(`emcc`) be on your `PATH` so they are executable by `rustc`.
 
 [rust-internals-emscripten]: https://internals.rust-lang.org/t/need-help-with-emscripten-port/3154
 
