@@ -136,6 +136,12 @@ else {
     <a href="https://bitbucket.org/tari/reduced-c">Source Code</a>
 
     <script src="https://cdn.jsdelivr.net/ace/1.2.0/min/ace.js" type="text/javascript" charset="utf-8"></script>
+    <script type="text/javascript">
+        // function compileSources(code, complete_callback);
+        // Compiles the code, calling complete_callback(object_code) when
+        // done.
+$$TEMPLATE_REPLACED$$
+    </script>
     <script>
         var editor = ace.edit('sourcecode');
         var button = document.getElementById('compile');
@@ -171,18 +177,14 @@ else {
             throbber.className = '';
             var code = editor.getValue();
 
-            var req = new XMLHttpRequest();
-            req.onload = function(e) {
-                var code = req.status;
-                objectcode.value = req.responseText;
+            compileSources(code, function(res) {
+                objectcode.value = res;
                 throbber.className = 'hidden';
-            };
-            req.open('POST', 'cgi-bin/rcc.cgi');
-            // Page encoding is utf-8 so this is correct.
-            req.setRequestHeader('Content-Type', 'text/plain; charset=UTF-8');
-            req.send(code);
-        }
+            });
+        };
 
+        // Browsers like to remember textarea contents across page loads;
+        // that shouldn't happen for the object code field.
         objectcode.value = '';
     </script>
 </body>
