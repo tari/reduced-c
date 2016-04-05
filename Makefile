@@ -22,7 +22,7 @@ dist-purejs.zip: web/purejs.html web/worker.js web/throbber.svg $(addprefix web/
 # code emitted by rustc in release mode.
 $(CARGO_JS_TARGETS):
 	cargo rustc --target=asmjs-unknown-emscripten --bin rcc -- \
-		-C link-args='-s ALLOW_MEMORY_GROWTH=1 -O3 $(EMCC_EXTRA_LINK)'
+		-C link-args='-s ALLOW_MEMORY_GROWTH=1 -O2 $(EMCC_EXTRA_LINK)'
 
 web/% : $(CARGO_JS_DIR)/%
 	cp $^ web
