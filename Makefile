@@ -28,7 +28,7 @@ web/% : $(CARGO_JS_DIR)/%
 	cp $^ web
 
 ## CGI version
-dist-cgi.zip: web/cgi.html web/cgi-bin/rcc.cgi
+dist-cgi.zip: web/cgi.html web/cgi-bin/rcc.cgi web/throbber.svg
 	zip dist-cgi.zip $^
 
 target/release/cgi:
