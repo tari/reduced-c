@@ -11,7 +11,6 @@ use std::fs::File;
 use std::io::{self, Read, Write, BufReader};
 use std::process;
 
-#[cfg(target_arch="asmjs")]
 mod logger {
     use ::log::{LogRecord, LogLevel, LogMetadata, SetLoggerError, LogLevelFilter};
     struct StdoutLogger(LogLevel);

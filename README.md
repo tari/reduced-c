@@ -21,6 +21,14 @@ This will build (mostly) static binaries under a `target` directory. Due to some
 inefficiencies in `rustc`, `reduced-c-syntax` can take a long time to compile-
 about four minutes on my reasonably-fast laptop.
 
+### Javascript
+
+For targeting javascript, you'll need a version of rustc with support for the
+`asmjs-unknown-emscripten` target. Currently, that means [building it from
+source with some patches][rust-internals-emscripten].
+
+[rust-internals-emscripten]: https://internals.rust-lang.org/t/need-help-with-emscripten-port/3154
+
 ## Binaries
 
 The following binaries are included:
