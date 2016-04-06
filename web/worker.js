@@ -1,23 +1,54 @@
 var output = '';
+// Two conditions must be satisfied before we can callMain():
+//  * We have received some source code
+//  * The runtime and all of its dependencies have loaded
+var input = null;
+var runtimeReady = false;
+
 function print(s) {
-    if (s == 'Calling stub instead of signal()') {
-        // Emscripten prints this message presumably in response to something
-        // the Rust runtime does during startup. Ignore it.
-        return;
+    if (s == 'Calling stub instead of signal()' || !runtimeReady) {
+        // Emscripten prints that message in response to what I assume is
+        // rust runtime startup, and warnings (in particular, "run() called
+        // but dependencies remain") before onRuntimeInitialized triggers
+        // are beyond our control. Log but do not report to the user.
+        console.log(s);
+    } else {
+        output += s + '\n';
     }
-    output += s + '\n';
 }
+
 var Module = {
     noInitialRun: true,
     print: print,
-    printErr: print
+    printErr: print,
+    onRuntimeInitialized: function() {
+        runtimeReady = true;
+        maybeRunCompile();
+    }
 };
+
 importScripts('rcc.js');
 
-onmessage = function(e) {
-    var sources = e.data;
+function maybeRunCompile() {
+    if (input !== null && runtimeReady) {
+        try {
+            FS.writeFile('input.rcc', input);
+            Module.callMain(['input.rcc']);
+            postMessage(output);
+        } catch (e) {
+            console.error(e);
+            postMessage("Unexpected error running compiler:\n" + e.toString());
+        }
+    } else {
+        if (input === null) {
+            console.log('Runtime ready but no source code received yet');
+        } else {
+            console.log('Source code received but runtime not yet ready');
+        }
+    }
+}
 
-    FS.writeFile('input.rcc', sources);
-    Module.callMain(['input.rcc']);
-    postMessage(output);
+onmessage = function(e) {
+    input = e.data;
+    maybeRunCompile();
 }

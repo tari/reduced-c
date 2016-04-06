@@ -1,5 +1,5 @@
 # Extra parameters to emcc for final compilation of javascript.
-# Perhaps '--closure 1'
+# Perhaps '--closure 1' or '-s ASSERTIONS=1'
 EMCC_EXTRA_LINK ?= 
 
 ## Generic targets, etc
@@ -22,7 +22,7 @@ dist-purejs.zip: web/purejs.html web/worker.js web/throbber.svg $(addprefix web/
 # code emitted by rustc in release mode.
 $(CARGO_JS_TARGETS):
 	cargo rustc --target=asmjs-unknown-emscripten --bin rcc -- \
-		-C link-args='-s ALLOW_MEMORY_GROWTH=1 -O2 $(EMCC_EXTRA_LINK)'
+		-C link-args='-s ALLOW_MEMORY_GROWTH=1 -O3 $(EMCC_EXTRA_LINK)'
 
 web/purejs.html: web/template.html web/purejs.js tsubst.awk
 	awk -f tsubst.awk -v templatefile=web/purejs.js web/template.html > web/purejs.html
