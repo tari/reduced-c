@@ -16,6 +16,9 @@ body {
     width: 100%;
     height: 20em;
 }
+#useaceeditorlabel {
+    float: right;
+}
 #objectcode {
     resize: vertical;
 }
@@ -34,9 +37,12 @@ pre {
 
 <body>
     <h2>Source code</h2>
-    <div class="code" id="sourcecode"></div>
+    <textarea class="code" id="sourcecode" placeholder="Enter your code here."></textarea>
     <button id="compile">Compile</button>
     <img alt="Working.." id="throbber" src="throbber.svg" class="hidden" />
+    <label id="useaceeditorlabel">Use ACE editor
+        <input checked="true" type="checkbox" id="useaceeditor"/>
+    </label>
     <h2>Object code</h2>
     <textarea class="code" id="objectcode" readonly="true" autocomplete="false"
         placeholder="Compiler output will appear here."></textarea>
@@ -143,46 +149,86 @@ else {
 $$TEMPLATE_REPLACED$$
     </script>
     <script>
-        var editor = ace.edit('sourcecode');
+        /* Editor wrangling. */
+        var useAce = false;     // Initial value matches use of textarea
+        var useAceCheckbox = document.getElementById('useaceeditor');
+        var editor = document.getElementById('sourcecode');
+        var basicEditor = editor;
+
+        function setUpEditor() {
+            var code = getSourceCode();
+            var oldUseAce = useAce;
+            useAce = useAceCheckbox.checked;
+
+            if (useAce && !oldUseAce) {
+                // Replace existing textarea with a div. Ace doesn't work
+                // on textareas.
+                var newEditor = document.createElement('div');
+                var parent = editor.parentNode;
+                parent.replaceChild(newEditor, editor);
+                newEditor.id = editor.id;
+                newEditor.className = 'code';
+
+                // Set up ace on the editor
+                editor = ace.edit('sourcecode');
+                editor.getSession().setMode('ace/mode/c_cpp');
+                editor.getSession().on('change', function(e) {
+                    button.disabled = false;
+                });
+                // Show a placeholder message if there is nothing in the editor.
+                // From https://stackoverflow.com/questions/26695708/
+                function ace_placeholder_handler() {
+                    var shouldShow = !editor.session.getValue().length;
+                    var node = editor.renderer.emptyMessageNode;
+                    if (!shouldShow && node) {
+                        editor.renderer.scroller.removeChild(editor.renderer.emptyMessageNode);
+                        editor.renderer.emptyMessageNode = null;
+                    } else if (shouldShow && !node) {
+                        node = editor.renderer.emptyMessageNode = document.createElement("div");
+                        node.textContent = "Enter your code here.";
+                        node.className = "ace_invisible ace_emptyMessage";
+                        node.style.padding = "0 1rem";
+                        editor.renderer.scroller.appendChild(node);
+                    }
+                }
+                editor.on('input', ace_placeholder_handler);
+                setTimeout(ace_placeholder_handler, 100);
+                // Now we can set the editor's text to what we had before.
+                editor.getSession().setValue(code);
+            } else if (!useAce && oldUseAce) {
+                // Replace Ace's div with the basic editor
+                var editorNode = document.getElementById('sourcecode');
+                editorNode.parentNode.replaceChild(basicEditor, editorNode);
+                editor = basicEditor;
+                editor.value = code;
+            }
+        }
+        function getSourceCode() {
+            if (useAce) {
+                return editor.getValue();
+            } else {
+                return editor.value;
+            }
+        }
+
         var button = document.getElementById('compile');
         var objectcode = document.getElementById('objectcode');
         var throbber = document.getElementById('throbber');
-        editor.getSession().setMode('ace/mode/c_cpp');
-
-        editor.getSession().on('change', function(e) {
-            button.disabled = false;
-        });
-
-        // Show a placeholder message if there is nothing in the editor.
-        // From https://stackoverflow.com/questions/26695708/
-        function update() {
-            var shouldShow = !editor.session.getValue().length;
-            var node = editor.renderer.emptyMessageNode;
-            if (!shouldShow && node) {
-                editor.renderer.scroller.removeChild(editor.renderer.emptyMessageNode);
-                editor.renderer.emptyMessageNode = null;
-            } else if (shouldShow && !node) {
-                node = editor.renderer.emptyMessageNode = document.createElement("div");
-                node.textContent = "Enter your code here.";
-                node.className = "ace_invisible ace_emptyMessage";
-                node.style.padding = "0 1rem";
-                editor.renderer.scroller.appendChild(node);
-            }
-        }
-        editor.on('input', update);
-        setTimeout(update, 100);
 
         document.getElementById('compile').onclick = function() {
             button.disabled = true;
             throbber.className = '';
-            var code = editor.getValue();
 
-            compileSources(code, function(res) {
+            compileSources(getSourceCode(), function(res) {
                 objectcode.value = res;
                 throbber.className = 'hidden';
             });
         };
 
+        useAceCheckbox.onchange = setUpEditor;
+        basicEditor.oninput = function() { button.disabled = false; };
+        button.disabled = false;
+        setUpEditor();
         // Browsers like to remember textarea contents across page loads;
         // that shouldn't happen for the object code field.
         objectcode.value = '';
