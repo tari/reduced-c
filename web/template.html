@@ -141,7 +141,7 @@ else {
     Reduced-C compiler by Peter Marheine for CS1030. |
     <a href="https://bitbucket.org/tari/reduced-c">Source Code</a>
 
-    <script src="https://cdn.jsdelivr.net/ace/1.2.0/min/ace.js" type="text/javascript" charset="utf-8"></script>
+    <script src="https://cdn.jsdelivr.net/ace/1.2.3/min/ace.js" type="text/javascript" charset="utf-8"></script>
     <script type="text/javascript">
         // function compileSources(code, complete_callback);
         // Compiles the code, calling complete_callback(object_code) when
@@ -211,6 +211,7 @@ $$TEMPLATE_REPLACED$$
             }
         }
 
+        /* Other UI bits */
         var button = document.getElementById('compile');
         var objectcode = document.getElementById('objectcode');
         var throbber = document.getElementById('throbber');
@@ -227,10 +228,10 @@ $$TEMPLATE_REPLACED$$
 
         useAceCheckbox.onchange = setUpEditor;
         basicEditor.oninput = function() { button.disabled = false; };
-        button.disabled = false;
         setUpEditor();
-        // Browsers like to remember textarea contents across page loads;
-        // that shouldn't happen for the object code field.
+        // Browsers like to remember some form state across page loads.
+        // Explicitly clear these.
+        button.disabled = false;
         objectcode.value = '';
     </script>
 </body>
