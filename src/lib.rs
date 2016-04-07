@@ -11,18 +11,24 @@ use std::io::{self, Read, Write};
 pub mod instr;
 pub mod trans;
 pub mod opt;
+pub mod validate;
 
 #[derive(Debug)]
 pub enum CompileError {
     Syntax(syntax::Error),
-    Trans(String)
+    Validation(Vec<validate::ValidationError>),
 }
 
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            &CompileError::Syntax(ref e) => write!(f, "{}", e),
-            &CompileError::Trans(ref s) => write!(f, "Translation error: {}", s)
+            &CompileError::Syntax(ref e) => write!(f, "ERROR {}", e),
+            &CompileError::Validation(ref es) => {
+                for err in es {
+                    try!(write!(f, "ERROR {}", err));
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -31,7 +37,7 @@ impl std::error::Error for CompileError {
     fn description(&self) -> &str {
         match self {
             &CompileError::Syntax(ref e) => e.description(),
-            &CompileError::Trans(ref s) => s
+            &CompileError::Validation(_) => "validation error(s)",
         }
     }
 }
@@ -42,9 +48,9 @@ impl From<syntax::Error> for CompileError {
     }
 }
 
-impl From<trans::Error> for CompileError {
-    fn from(e: trans::Error) -> CompileError {
-        CompileError::Trans(e.0)
+impl From<Vec<validate::ValidationError>> for CompileError {
+    fn from(e: Vec<validate::ValidationError>) -> CompileError {
+        CompileError::Validation(e)
     }
 }
 
@@ -53,8 +59,15 @@ pub fn compile<R: Read>(mut src: R) -> Result<Vec<(instr::Label, instr::Instruct
     let ast = try!(syntax::parse(&mut src));
     debug!("Finished parsing source code");
 
+    debug!("Checking AST validity");
+    let verrs = validate::validate_ast(&ast);
+    if verrs.len() > 0 {
+        return Err(verrs.into());
+    }
+    debug!("Finished checking AST validity");
+
     debug!("Beginning compilation");
-    let mut assembly = try!(trans::compile(ast));
+    let mut assembly = trans::compile(ast);
     debug!("Completed compilation to {} instructions", assembly.len());
 
     debug!("Beginning optimization");

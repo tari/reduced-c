@@ -150,15 +150,9 @@ impl VariableContext {
     }
 
     /// Get the label for a function's return value.
-    fn function_return(&mut self) -> Result<Label, Error> {
-        // TODO Not a great place to do this check.. Probably best to actually
-        // walk the AST and search for Return.
-        if self.return_type == syntax::Type::Void {
-            return Err(Error("Function returning void must not return a value".into()));
-        }
-
+    fn function_return(&mut self) -> Label {
         self.locals.insert("_RES".into(), 0);
-        Ok(Label::Name("_RES".into()))
+        Label::Name("_RES".into())
     }
 
     fn jump_target(&mut self, suffix: &'static str) -> Label {
@@ -170,26 +164,20 @@ impl VariableContext {
 /// A list of instructions, each of which may have a label associated.
 pub type Program = Vec<(Label, instr::Instruction)>;
 
-pub struct Error(pub String);
-
-pub fn compile(ast: syntax::Function) -> Result<Program, Error> {
+pub fn compile(ast: syntax::Function) -> Program {
     let mut context = VariableContext::new(ast.returns);
     let mut program: Program = vec![];
 
     // Create function parameters.
-    for (ty, name) in ast.parameters.into_iter() {
+    for (ty, (name, _)) in ast.parameters.into_iter() {
         assert_eq!(ty, syntax::Type::Int);
-        if context.create(&name, 0).is_err() {
-            return Err(Error(
-                format!("Attempted redeclaration of variable '{}'", name)
-            ))
-        }
+        context.create(&name, 0).expect("validate failed to catch duplicate parameter name");
     }
 
     // Create the function body
     debug!("Expanding {} statements", ast.body.len());
     for stmt in ast.body.into_iter() {
-        try!(expand_statement(stmt, &mut program, &mut context));
+        expand_statement(stmt, &mut program, &mut context);
     }
     // Code always ends with a halt
     program.push((Label::None, Instruction::Halt));
@@ -202,7 +190,7 @@ pub fn compile(ast: syntax::Function) -> Result<Program, Error> {
         (Label::Name(label), Instruction::Value(x))
     }));
 
-    Ok(program)
+    program
 }
 
 /// Expand an expression into a program fragment, with the expression's value
@@ -211,56 +199,51 @@ pub fn compile(ast: syntax::Function) -> Result<Program, Error> {
 /// The return value is the program fragment and the list of clobbered registers,
 /// excluding the output register.
 fn expand_expr(expr: syntax::Expression, out: Register,
-               ctxt: &mut VariableContext) -> Result<(Program, Vec<Register>), Error> {
+               ctxt: &mut VariableContext) -> (Program, Vec<Register>) {
     /// All registers except `reg`.
     fn all_except(reg: Register) -> Vec<Register> {
         [Register(0), Register(1)].iter().cloned().filter(|&r| r != reg).collect()
     }
 
-    Ok(match expr {
+    match expr {
         Expression::Literal(x) => {
             let lit = ctxt.constant(x);
             (vec![(Label::None, Instruction::Load(lit, out))],
              vec![])
         }
-        Expression::Variable(name) => {
-            let var = match ctxt.get(&name) {
-                Some(label) => label,
-                None => return Err(Error(
-                    format!("Attempted to read undefined variable '{}'", name)
-                ))
-            };
+        Expression::Variable(name, _) => {
+            let var = ctxt.get(&name).expect("validation failed to catch use of undefined variable");
             (vec![(Label::None, Instruction::Load(var, out))],
              vec![])
         }
         Expression::Subtraction(lhs, rhs) => {
-            let mut instrs = try!(expand_expr_pair(*lhs, *rhs, ctxt));
+            let mut instrs = expand_expr_pair(*lhs, *rhs, ctxt);
             instrs.push((Label::None, Instruction::Subtract(Register(0), Register(1), out)));
             // Binary operations always use both regs
             (instrs, all_except(out))
         }
         Expression::Addition(lhs, rhs) => {
-            let mut instrs = try!(expand_expr_pair(*lhs, *rhs, ctxt));
+            let mut instrs = expand_expr_pair(*lhs, *rhs, ctxt);
             instrs.push((Label::None, Instruction::Add(Register(0), Register(1), out)));
             (instrs, all_except(out))
         }
         Expression::Negation(op) => {
-            let (mut instrs, _) = try!(expand_expr(*op, Register(1), ctxt));
+            let (mut instrs, _) = expand_expr(*op, Register(1), ctxt);
             // Subtract the operand from zero
             instrs.push((Label::None, Instruction::Clear(Register(0))));
             instrs.push((Label::None, Instruction::Subtract(Register(0), Register(1), out)));
             (instrs, all_except(out))
         }
-    })
+    }
 }
 
 /// Expand `expr1` into `Register(0)` and `expr2` into `Register(1)`, attempting to
 /// minimize spills.
 fn expand_expr_pair(expr1: Expression, expr2: Expression,
-                    ctxt: &mut VariableContext) -> Result<Program, Error> {
+                    ctxt: &mut VariableContext) -> Program {
     let mut instrs: Program;
-    let (lhs_frag, lhs_clob) = try!(expand_expr(expr1, Register(0), ctxt));
-    let (rhs_frag, rhs_clob) = try!(expand_expr(expr2, Register(1), ctxt));
+    let (lhs_frag, lhs_clob) = expand_expr(expr1, Register(0), ctxt);
+    let (rhs_frag, rhs_clob) = expand_expr(expr2, Register(1), ctxt);
 
     match (lhs_clob.contains(&Register(1)),
            rhs_clob.contains(&Register(0))) {
@@ -283,44 +266,33 @@ fn expand_expr_pair(expr1: Expression, expr2: Expression,
             instrs.push((Label::None, Instruction::Load(spill, Register(0))));
         }
     }
-    Ok(instrs)
+    instrs
 }
 
 fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instruction)>,
-                    context: &mut VariableContext) -> Result<(), Error> {
+                    context: &mut VariableContext) {
     match stmt {
-        Statement::Declaration(name, value) => {
+        Statement::Declaration(name, value, _) => {
             if let Expression::Literal(x) = value {
-                if context.create(&name, x).is_err() {
-                    return Err(Error(
-                        format!("Attempted redeclaration of variable '{}'", name)
-                    ))
-                }
+                context.create(&name, x).expect("validation failed to catch redeclaration");
             } else {
                 panic!("BUG: expected literal in declaration, got {:?}", value)
             }
-            Ok(())
         }
 
-        Statement::Return(expr) => {
-            let result = try!(context.function_return());
-            let (fragment, _) = try!(expand_expr(expr, Register(0), context));
+        Statement::Return(expr, _) => {
+            let result = context.function_return();
+            let (fragment, _) = expand_expr(expr, Register(0), context);
             program.extend(fragment);
             program.push((Label::None, Instruction::Store(Register(0), result)));
-            Ok(())
         }
 
-        Statement::Assignment(name, expr) => {
-            let var = match context.get(&name) {
-                Some(v) => v,
-                None => return Err(Error(
-                    format!("Attempted assignment to undeclared variable '{}'", name)
-                ))
-            };
-            let (fragment, _) = try!(expand_expr(expr, Register(0), context));
+        Statement::Assignment(name, expr, _) => {
+            let var = context.get(&name)
+                .expect("validation failed to catch assignment to undeclared variable");
+            let (fragment, _) = expand_expr(expr, Register(0), context);
             program.extend(fragment);
             program.push((Label::None, Instruction::Store(Register(0), var)));
-            Ok(())
         }
 
         Statement::Conditional(predicate, then_block, mut else_block) => {
@@ -350,7 +322,7 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             let end_label = context.jump_target("ei");
 
             // Evaluate the predicate
-            program.extend(try!(expand_expr_pair(lhs, rhs, context)));
+            program.extend(expand_expr_pair(lhs, rhs, context));
             // Emit comparison and jump. Note that we emit the else block first
             // because the branches are taken if the comparison succeeds, so
             // we jump on condition success and fall through otherwise.
@@ -360,7 +332,7 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             // Emit 'else' block
             if let Some(block) = else_block {
                 for stmt in block {
-                    try!(expand_statement(stmt, program, context));
+                    expand_statement(stmt, program, context);
                 }
             }
             program.push((Label::None, Instruction::Jump(end_label.clone())));
@@ -369,13 +341,12 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             program.push((then_label, Instruction::Nop));
             if let Some(block) = then_block {
                 for stmt in block {
-                    try!(expand_statement(stmt, program, context));
+                    expand_statement(stmt, program, context);
                 }
             }
             
             // Emit the end label
             program.push((end_label, Instruction::Nop));
-            Ok(())
         }
 
         Statement::While(predicate, statements) => {
@@ -392,10 +363,9 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             /// in `r1`.
             fn compare_expanded(lhs: syntax::Expression, rhs: syntax::Expression,
                                 context: &mut VariableContext,
-                                program: &mut Vec<(Label, Instruction)>) -> Result<(), Error> {
-                program.extend(try!(expand_expr_pair(lhs, rhs, context)));
+                                program: &mut Vec<(Label, Instruction)>) {
+                program.extend(expand_expr_pair(lhs, rhs, context));
                 program.push((Label::None, Instruction::Compare(Register(0), Register(1))));
-                Ok(())
             }
 
             // At ToL, check predicate.
@@ -404,23 +374,23 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
                 // == and <= are easy, since we have direct inversions as machine instructions.
                 // Jump to BoL if the comparison is false, otherwise fall through to IoL.
                 BooleanExpr::Equal(l, r) => {
-                    try!(compare_expanded(l, r, context, program));
+                    compare_expanded(l, r, context, program);
                     program.push((Label::None, Instruction::BranchNotEqual(bol.clone())));
                 }
                 BooleanExpr::LessOrEqual(l, r) => {
-                    try!(compare_expanded(l, r, context, program));
+                    compare_expanded(l, r, context, program);
                     program.push((Label::None, Instruction::BranchGreater(bol.clone())));
                 }
 
                 BooleanExpr::Greater(l, r) => {
-                    try!(compare_expanded(l, r, context, program));
+                    compare_expanded(l, r, context, program);
                     // Enter loop (IoL) if was indeed greater
                     program.push((Label::None, Instruction::BranchGreater(iol.clone())));
                     // Otherwise jump to BoL
                     program.push((Label::None, Instruction::Jump(bol.clone())));
                 }
                 BooleanExpr::NotEqual(l, r) => {
-                    try!(compare_expanded(l, r, context, program));
+                    compare_expanded(l, r, context, program);
                     // Enter loop if truly not equal
                     program.push((Label::None, Instruction::BranchNotEqual(iol.clone())));
                     // Otherwise skip out
@@ -431,14 +401,13 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             // Emit loop body
             program.push((iol, Instruction::Nop));
             for stmt in statements {
-                try!(expand_statement(stmt, program, context));
+                expand_statement(stmt, program, context);
             }
             // Jump back to ToL
             program.push((Label::None, Instruction::Jump(tol)));
 
             // Next statement.
             program.push((bol, Instruction::Nop));
-            Ok(())
         }
     }
 }
