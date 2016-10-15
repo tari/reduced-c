@@ -31,12 +31,16 @@ any special server support.
 
 For targeting javascript, you'll need a version of rustc with support for the
 `asmjs-unknown-emscripten` target. Currently, that means [building it from
-source with some patches][rust-internals-emscripten]. Ensure that version of
+source][rust-users-emscripten]. Ensure that version of
 rustc is the one that will run when you invoke `rustc`, or set the `RUSTC`
-environment variable to point to it. It also requires that the emscripten tools
-(`emcc`) be on your `PATH` so they are executable by `rustc`.
+environment variable to point to it so invoking Cargo will use it. (This
+should be easier to set up in the near future!)
 
-[rust-internals-emscripten]: https://internals.rust-lang.org/t/need-help-with-emscripten-port/3154
+[rust-users-emscripten]: https://users.rust-lang.org/t/compiling-to-the-web-with-rust-and-emscripten/7627
+
+Then you should be able to invoke Make to build the pure-Javascript version:
+
+    make dist-purejs.zip
 
 ## Binaries
 
