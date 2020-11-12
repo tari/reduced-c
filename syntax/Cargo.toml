@@ -7,4 +7,4 @@ authors = ["Peter Marheine <peter@taricorp.net>"]
 
 [dependencies]
 combine = "1"
-log = "0.3"
+log = "0.4"
