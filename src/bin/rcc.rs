@@ -1,8 +1,6 @@
 extern crate docopt;
-extern crate env_logger;
 #[macro_use]
 extern crate log;
-extern crate rustc_serialize;
 
 extern crate reduced_c as compiler;
 
@@ -12,26 +10,28 @@ use std::io::{self, Read, Write, BufReader};
 use std::process;
 
 mod logger {
-    use ::log::{LogRecord, LogLevel, LogMetadata, SetLoggerError, LogLevelFilter};
-    struct StdoutLogger(LogLevel);
+    use ::log::{Record, Level, Metadata, SetLoggerError, LevelFilter};
+    struct StdoutLogger(Level);
 
     impl ::log::Log for StdoutLogger {
-        fn enabled(&self, metadata: &LogMetadata) -> bool {
+        fn enabled(&self, metadata: &Metadata) -> bool {
             metadata.level() <= self.0
         }
 
-        fn log(&self, record: &LogRecord) {
+        fn log(&self, record: &Record) {
             if self.enabled(record.metadata()) {
                 println!("{} - {}", record.level(), record.args());
             }
         }
+
+        fn flush(&self) {}
     }
 
-    pub fn init(ll: LogLevelFilter) -> Result<(), SetLoggerError> {
-        ::log::set_logger(|max_log_level| {
-            max_log_level.set(ll);
-            Box::new(StdoutLogger(ll.to_log_level().unwrap()))
-        })
+    pub fn init(ll: LevelFilter) -> Result<(), SetLoggerError> {
+        ::log::set_max_level(ll);
+        ::log::set_boxed_logger(
+            Box::new(StdoutLogger(ll.to_level().unwrap()))
+        )
     }
 }
 
@@ -47,49 +47,40 @@ Options:
                     (Default: Error).
 ";
 
-#[derive(RustcDecodable, Debug)]
-#[allow(non_snake_case)]
-struct Args {
-    arg_src: String,
-    flag_o: Option<String>,
-    flag_l: Option<String>,
-}
-
 pub fn main() {
-    let args: Args = Docopt::new(USAGE)
-        .and_then(|d| d.version(Some("0.1.0".to_string())).decode())
+    let args = Docopt::new(USAGE)
+        .and_then(|d| d.version(Some(env!("CARGO_PKG_VERSION").to_owned())).parse())
         .unwrap_or_else(|e| e.exit());
     debug!("{:?}", args);
     
-    if cfg!(target_arch="asmjs") {
+    if cfg!(target_os="emscripten") {
         // Logging in javascript is a mess, so we'll just spew to stdout.
         // (Environment variables don't exist, for one.)
         use std::str::FromStr;
-        let ll = args.flag_l.map_or(log::LogLevelFilter::Error, |ref s| {
-            FromStr::from_str(s).expect("Invalid log level")
+        let ll = args.find("-l").map_or(log::LevelFilter::Error, |ref v| {
+            FromStr::from_str(v.as_str()).expect("Invalid log level")
         });
         logger::init(ll).unwrap();
     } else {
         // If not javascript, we can use env vars. Note -l LEVEL will override
         // any existing setting.
-        std::env::set_var("RUST_LOG", args.flag_l.unwrap_or("error".to_owned()));
-        env_logger::init().unwrap();
+        std::env::set_var("RUST_LOG", args.get_str("-l"));
+        env_logger::init();
     }
     trace!("Logger registered");
 
     let ref mut stderr = io::stderr();
-    let infile: Box<Read> = if args.arg_src == "-" {
-        if cfg!(target_arch="asmjs") {
-            // Running this with node, stdin read an unlimited amount of I-don't-know-what.
-            // Zeroes maybe.
+    let src_filename = args.get_str("<src>");
+    let infile: Box<Read> = if src_filename == "-" {
+        if cfg!(target_os="emscripten") {
             panic!("Reading source code from standard input is not supported in javascript");
         }
         Box::new(io::stdin())
     } else {
-        match File::open(&args.arg_src) {
+        match File::open(src_filename) {
             Ok(f) => Box::new(f),
             Err(e) => {
-                write!(stderr, "Failed to read {}: {}\n", args.arg_src, e).unwrap();
+                write!(stderr, "Failed to read {}: {}\n", src_filename, e).unwrap();
                 process::exit(1);
             }
         }

@@ -13,8 +13,7 @@ lto = true
 path = "syntax"
 
 [dependencies]
-docopt = "*"
-env_logger = "*"
-log = "*"
-rustc-serialize = "*"
+docopt = "1"
+env_logger = "0.8"
+log = "0.4"
 
