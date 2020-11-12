@@ -1,13 +1,12 @@
 #[macro_use]
 extern crate log;
 
-extern crate reduced_c_syntax as syntax;
-
 use std::io::{self, Read, Write};
 
 pub mod instr;
 pub mod trans;
 pub mod opt;
+pub mod syntax;
 pub mod validate;
 
 #[derive(Debug)]

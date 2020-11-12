@@ -9,11 +9,8 @@ lto = true
 
 [lib]
 
-[dependencies.reduced-c-syntax]
-# In its own subcrate to avoid slow recompiles
-path = "syntax"
-
 [dependencies]
+combine = "1"
 docopt = "1"
 env_logger = "0.8"
 log = "0.4"

@@ -15,10 +15,6 @@ use std::error::Error as StdError;
 use std::fmt::Write;
 use std::io;
 
-extern crate combine;
-#[macro_use]
-extern crate log;
-
 mod parser;
 
 pub use combine::primitives::SourcePosition;

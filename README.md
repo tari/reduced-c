@@ -17,9 +17,7 @@ Once you have everything, just invoke cargo:
     # For optimizations (slower to compile)
     $ cargo build --release
 
-This will build (mostly) static binaries under a `target` directory. Due to some
-inefficiencies in `rustc`, `reduced-c-syntax` can take a long time to compile-
-about four minutes on my reasonably-fast laptop.
+This will build (mostly) static binaries under a `target` directory.
 
 ### Web
 

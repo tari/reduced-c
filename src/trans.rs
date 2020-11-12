@@ -4,8 +4,8 @@ use std;
 use std::collections::{hash_set, HashSet, hash_map, HashMap};
 use std::ops::Range;
 
-use super::instr::{self, Instruction, Register, Label};
-use syntax::{self, Statement, Expression, BooleanExpr};
+use crate::instr::{self, Instruction, Register, Label};
+use crate::syntax::{self, Statement, Expression, BooleanExpr};
 
 ///
 ///

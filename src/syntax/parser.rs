@@ -7,7 +7,7 @@ use combine;
 use combine::{Parser, ParserExt, ParseError};
 use combine::primitives::Error as PError;
 use combine::primitives::{State, Stream, ParseResult, Consumed, SourcePosition};
-use combine::{sep_by, many, between, parser, optional, try, choice};
+use combine::{sep_by, many, between, parser, optional, r#try as ptry, choice};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
@@ -334,7 +334,7 @@ impl<I> Parser for Expression<I> where I: Stream<Item=Token> {
     type Output = super::Expression;
 
     fn parse_state(&mut self, input: State<I>) -> ParseResult<super::Expression, I> {
-        try(ArithExpr(PhantomData))
+        ptry(ArithExpr(PhantomData))
             .or(SingleExpr(PhantomData))
             .parse_state(input)
     }
