@@ -4,9 +4,9 @@ extern crate log;
 use std::io::{self, Read, Write};
 
 pub mod instr;
-pub mod trans;
 pub mod opt;
 pub mod syntax;
+pub mod trans;
 pub mod validate;
 
 #[derive(Debug)]
@@ -30,7 +30,9 @@ impl std::fmt::Display for CompileError {
 }
 
 impl std::error::Error for CompileError {
-    fn description(&self) -> &str { "" }
+    fn description(&self) -> &str {
+        ""
+    }
 }
 
 impl From<syntax::Error> for CompileError {
@@ -45,7 +47,9 @@ impl From<Vec<validate::ValidationError>> for CompileError {
     }
 }
 
-pub fn compile<R: Read>(mut src: R) -> Result<Vec<(instr::Label, instr::Instruction)>, CompileError> {
+pub fn compile<R: Read>(
+    mut src: R,
+) -> Result<Vec<(instr::Label, instr::Instruction)>, CompileError> {
     debug!("Beginning parse");
     let ast = syntax::parse(&mut src)?;
     debug!("Finished parsing source code");
@@ -68,14 +72,17 @@ pub fn compile<R: Read>(mut src: R) -> Result<Vec<(instr::Label, instr::Instruct
     Ok(assembly)
 }
 
-pub fn print_assembly<W: Write>(program: &[(instr::Label, instr::Instruction)], mut dest: W) -> io::Result<()> {
+pub fn print_assembly<W: Write>(
+    program: &[(instr::Label, instr::Instruction)],
+    mut dest: W,
+) -> io::Result<()> {
     for &(ref label, ref instruction) in program {
         if let &instr::Label::Name(_) = label {
             write!(dest, "{}:\n", label)?;
         }
         match instruction {
             &instr::Instruction::Nop => { /* nops are only ever generated as filler */ }
-            i => write!(dest, "    {}\n", i)?
+            i => write!(dest, "    {}\n", i)?,
         }
     }
     Ok(())

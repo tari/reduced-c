@@ -14,7 +14,7 @@ impl fmt::Display for Register {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0 {
             x @ 0 | x @ 1 => write!(f, "r{}", x),
-            x => panic!("Invalid register number: {}", x)
+            x => panic!("Invalid register number: {}", x),
         }
     }
 }
@@ -27,7 +27,7 @@ pub enum Label {
     /// Known location in memory.
     Address(Addr),
     /// Abstract location, with address not yet resolved.
-    Name(String)
+    Name(String),
 }
 
 impl fmt::Display for Label {
@@ -35,7 +35,7 @@ impl fmt::Display for Label {
         match *self {
             Label::None => Ok(()),
             Label::Address(_) => panic!("Bare addresses are not printable"),
-            Label::Name(ref s) => write!(f, "{}", s)
+            Label::Name(ref s) => write!(f, "{}", s),
         }
     }
 }
@@ -100,7 +100,7 @@ impl fmt::Display for Instruction {
             Or(ref s1, ref s2, ref d) => write!(f, "or {}, {}, {}", s1, s2, d),
             Nand(ref s1, ref s2, ref d) => write!(f, "nand {}, {}, {}", s1, s2, d),
             Nor(ref s1, ref s2, ref d) => write!(f, "nor {}, {}, {}", s1, s2, d),
-            Complement(ref s,ref d) => write!(f, "not {}, {}", s, d),
+            Complement(ref s, ref d) => write!(f, "not {}, {}", s, d),
             Clear(ref r) => write!(f, "clear {}", r),
             Compare(ref r1, ref r2) => write!(f, "cmp {}, {}", r1, r2),
             BranchGreater(ref l) => write!(f, "bgt {}", l),
@@ -108,7 +108,7 @@ impl fmt::Display for Instruction {
             Jump(ref l) => write!(f, "jump {}", l),
             Halt => write!(f, "halt"),
             Nop => write!(f, "nop"),
-            Value(ref x) => write!(f, "{}", x)
+            Value(ref x) => write!(f, "{}", x),
         }
     }
 }

@@ -24,21 +24,18 @@ pub use combine::primitives::SourcePosition;
 // rules in here (particularly big ones) are written as functions rather than
 // simple local bindings, at the cost of being a bit more verbose.
 
-
 #[derive(Debug)]
 pub enum Error {
     /// Line, column, description
     Syntax(String),
-    Other(Box<dyn StdError>)
+    Other(Box<dyn StdError>),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            Error::Syntax(ref info) =>
-                write!(f, "Syntax error {}", info),
-            Error::Other(ref e) =>
-                write!(f, "Unspecified parse error: {}", e),
+            Error::Syntax(ref info) => write!(f, "Syntax error {}", info),
+            Error::Other(ref e) => write!(f, "Unspecified parse error: {}", e),
         }
     }
 }
@@ -47,15 +44,20 @@ impl StdError for Error {
     fn description(&self) -> &str {
         match *self {
             Error::Syntax(..) => "invalid syntax",
-            Error::Other(_) => "unspecified error"
+            Error::Other(_) => "unspecified error",
         }
     }
 }
 
 impl<I> From<combine::ParseError<parser::TokenStream<I>>> for Error
-        where I: Iterator<Item=char> + Clone {
+where
+    I: Iterator<Item = char> + Clone,
+{
     fn from(e: combine::ParseError<parser::TokenStream<I>>) -> Error {
-        let mut s = format!("at line {}, column {}. Possible causes:\n", e.position.line, e.position.column);
+        let mut s = format!(
+            "at line {}, column {}. Possible causes:\n",
+            e.position.line, e.position.column
+        );
         for err in e.errors {
             write!(s, " * {}\n", err).unwrap();
         }
@@ -73,7 +75,7 @@ impl From<io::Error> for Error {
 /// The type of an expression.
 pub enum Type {
     Void,
-    Int
+    Int,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -86,7 +88,7 @@ pub struct Function {
     /// List of parameters, with type and name.
     pub parameters: Vec<(Type, (String, SourcePosition))>,
     /// Body of function, zero or more statements.
-    pub body: Vec<Statement>
+    pub body: Vec<Statement>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -118,7 +120,7 @@ pub enum Expression {
     /// Difference of two expressions (first minus second).
     Subtraction(Box<Expression>, Box<Expression>),
     /// Negate the value of an expression.
-    Negation(Box<Expression>)
+    Negation(Box<Expression>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -131,7 +133,7 @@ pub enum BooleanExpr {
     /// True if the values are equal.
     Equal(Expression, Expression),
     /// True if the values are not equal.
-    NotEqual(Expression, Expression)
+    NotEqual(Expression, Expression),
 }
 
 /// Parse text into a single `Function`.
@@ -153,44 +155,52 @@ pub fn parse_str(s: &str) -> Result<Function, Error> {
 #[test]
 fn test_empty_fn() {
     let f = parse_str("void f(){}").unwrap();
-    assert_eq!(f,
-               Function {
-                   returns: Type::Void,
-                   name: "f".to_string(),
-                   parameters: vec![],
-                   body: vec![]
-               });
+    assert_eq!(
+        f,
+        Function {
+            returns: Type::Void,
+            name: "f".to_string(),
+            parameters: vec![],
+            body: vec![]
+        }
+    );
 }
 
 #[test]
 fn test_return_param() {
     let f = parse_str("int f(int x) { return x; }").unwrap();
-    assert_eq!(f,
-               Function {
-                   returns: Type::Int,
-                   name: "f".to_string(),
-                   parameters: vec![
-                       (Type::Int, ("x".to_string(), spos(1, 10)))
-                   ],
-                   body: vec![
-                       Statement::Return(
-                           Expression::Variable("x".to_string(), spos(1, 22)),
-                           spos(1, 15)
-                       )
-                   ]
-               });
+    assert_eq!(
+        f,
+        Function {
+            returns: Type::Int,
+            name: "f".to_string(),
+            parameters: vec![(Type::Int, ("x".to_string(), spos(1, 10)))],
+            body: vec![Statement::Return(
+                Expression::Variable("x".to_string(), spos(1, 22)),
+                spos(1, 15)
+            )]
+        }
+    );
 }
 
 #[test]
-#[ignore]   // Source position is wrong. Why?
+#[ignore] // Source position is wrong. Why?
 fn test_assignment() {
     let f = parse_str("void f() { int x = 123; }").unwrap();
-    assert_eq!(f.body, vec![
-        Statement::Declaration("x".to_string(), Expression::Literal(123), spos(1, 16))
-    ]);
+    assert_eq!(
+        f.body,
+        vec![Statement::Declaration(
+            "x".to_string(),
+            Expression::Literal(123),
+            spos(1, 16)
+        )]
+    );
 }
 
 #[cfg(test)]
 fn spos(line: i32, col: i32) -> SourcePosition {
-    SourcePosition { line: line, column: col }
+    SourcePosition {
+        line: line,
+        column: col,
+    }
 }

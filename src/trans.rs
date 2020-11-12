@@ -1,11 +1,11 @@
 //! Translation of the AST to instruction stream.
 
 use std;
-use std::collections::{hash_set, HashSet, hash_map, HashMap};
+use std::collections::{hash_map, hash_set, HashMap, HashSet};
 use std::ops::Range;
 
-use crate::instr::{self, Instruction, Register, Label};
-use crate::syntax::{self, Statement, Expression, BooleanExpr};
+use crate::instr::{self, Instruction, Label, Register};
+use crate::syntax::{self, BooleanExpr, Expression, Statement};
 
 ///
 ///
@@ -31,39 +31,33 @@ struct VariableContext {
     /// Number of jump targets emitted (again for sequence numbers)
     jump_count: usize,
     /// Return type of the function
-    return_type: syntax::Type
+    return_type: syntax::Type,
 }
 
 enum IterStaticsState<'a> {
     Constants(hash_set::Iter<'a, i8>),
     Locals(hash_map::Iter<'a, String, i8>),
-    Anons(Range<usize>)
+    Anons(Range<usize>),
 }
 
 impl<'a> IterStaticsState<'a> {
     fn next(&mut self) -> Option<(String, i8)> {
         match self {
             &mut IterStaticsState::Constants(ref mut i) => i.next().map(|&value| {
-                let sign = if value < 0 {
-                    "n"
-                } else {
-                    ""
-                };
+                let sign = if value < 0 { "n" } else { "" };
                 (format!("#{}{}", value.abs(), sign), value)
             }),
-            &mut IterStaticsState::Locals(ref mut i) => i.next().map(|(name, &value)| {
-                (name.clone(), value)
-            }),
-            &mut IterStaticsState::Anons(ref mut i) => i.next().map(|n| {
-                (format!(".t{}", n), 0)
-            })
+            &mut IterStaticsState::Locals(ref mut i) => {
+                i.next().map(|(name, &value)| (name.clone(), value))
+            }
+            &mut IterStaticsState::Anons(ref mut i) => i.next().map(|n| (format!(".t{}", n), 0)),
         }
     }
 }
 
 struct IterStatics<'a> {
     state: IterStaticsState<'a>,
-    ctxt: &'a VariableContext
+    ctxt: &'a VariableContext,
 }
 
 impl<'a> Iterator for IterStatics<'a> {
@@ -76,18 +70,15 @@ impl<'a> Iterator for IterStatics<'a> {
             return val;
         } else {
             let next_state = match self.state {
-                IterStaticsState::Constants(_) =>
-                    IterStaticsState::Locals(self.ctxt.locals.iter()),
-                IterStaticsState::Locals(_) =>
-                    IterStaticsState::Anons(0..self.ctxt.anon_count),
-                IterStaticsState::Anons(_) => return None
+                IterStaticsState::Constants(_) => IterStaticsState::Locals(self.ctxt.locals.iter()),
+                IterStaticsState::Locals(_) => IterStaticsState::Anons(0..self.ctxt.anon_count),
+                IterStaticsState::Anons(_) => return None,
             };
             self.state = next_state;
             self.next()
         }
     }
 }
-
 
 impl VariableContext {
     fn new(rtype: syntax::Type) -> VariableContext {
@@ -96,14 +87,14 @@ impl VariableContext {
             locals: HashMap::new(),
             anon_count: 0,
             jump_count: 0,
-            return_type: rtype
+            return_type: rtype,
         }
     }
 
     fn iter_statics<'a>(&'a self) -> IterStatics<'a> {
         IterStatics {
             state: IterStaticsState::Constants(self.constants.iter()),
-            ctxt: &self
+            ctxt: &self,
         }
     }
 
@@ -132,11 +123,7 @@ impl VariableContext {
         self.constants.insert(value);
 
         // Generate a label and return it
-        let prefix = if value < 0 {
-            "n"
-        } else {
-            ""
-        };
+        let prefix = if value < 0 { "n" } else { "" };
         // Cast up to i16 since abs(-128) is not representable as i8.
         Label::Name(format!("#{}{}", prefix, (value as i16).abs()))
     }
@@ -171,7 +158,9 @@ pub fn compile(ast: syntax::Function) -> Program {
     // Create function parameters.
     for (ty, (name, _)) in ast.parameters.into_iter() {
         assert_eq!(ty, syntax::Type::Int);
-        context.create(&name, 0).expect("validate failed to catch duplicate parameter name");
+        context
+            .create(&name, 0)
+            .expect("validate failed to catch duplicate parameter name");
     }
 
     // Create the function body
@@ -182,13 +171,18 @@ pub fn compile(ast: syntax::Function) -> Program {
     // Code always ends with a halt
     program.push((Label::None, Instruction::Halt));
 
-    info!("Statement expansion complete, generated {} instruction(s)", program.len());
+    info!(
+        "Statement expansion complete, generated {} instruction(s)",
+        program.len()
+    );
     debug!("Complete program: {:?}", &program);
 
     // Emit label and initial value for all named storage (which includes anonymous temporaries).
-    program.extend(context.iter_statics().map(|(label, x)| {
-        (Label::Name(label), Instruction::Value(x))
-    }));
+    program.extend(
+        context
+            .iter_statics()
+            .map(|(label, x)| (Label::Name(label), Instruction::Value(x))),
+    );
 
     program
 }
@@ -198,27 +192,37 @@ pub fn compile(ast: syntax::Function) -> Program {
 ///
 /// The return value is the program fragment and the list of clobbered registers,
 /// excluding the output register.
-fn expand_expr(expr: syntax::Expression, out: Register,
-               ctxt: &mut VariableContext) -> (Program, Vec<Register>) {
+fn expand_expr(
+    expr: syntax::Expression,
+    out: Register,
+    ctxt: &mut VariableContext,
+) -> (Program, Vec<Register>) {
     /// All registers except `reg`.
     fn all_except(reg: Register) -> Vec<Register> {
-        [Register(0), Register(1)].iter().cloned().filter(|&r| r != reg).collect()
+        [Register(0), Register(1)]
+            .iter()
+            .cloned()
+            .filter(|&r| r != reg)
+            .collect()
     }
 
     match expr {
         Expression::Literal(x) => {
             let lit = ctxt.constant(x);
-            (vec![(Label::None, Instruction::Load(lit, out))],
-             vec![])
+            (vec![(Label::None, Instruction::Load(lit, out))], vec![])
         }
         Expression::Variable(name, _) => {
-            let var = ctxt.get(&name).expect("validation failed to catch use of undefined variable");
-            (vec![(Label::None, Instruction::Load(var, out))],
-             vec![])
+            let var = ctxt
+                .get(&name)
+                .expect("validation failed to catch use of undefined variable");
+            (vec![(Label::None, Instruction::Load(var, out))], vec![])
         }
         Expression::Subtraction(lhs, rhs) => {
             let mut instrs = expand_expr_pair(*lhs, *rhs, ctxt);
-            instrs.push((Label::None, Instruction::Subtract(Register(0), Register(1), out)));
+            instrs.push((
+                Label::None,
+                Instruction::Subtract(Register(0), Register(1), out),
+            ));
             // Binary operations always use both regs
             (instrs, all_except(out))
         }
@@ -231,7 +235,10 @@ fn expand_expr(expr: syntax::Expression, out: Register,
             let (mut instrs, _) = expand_expr(*op, Register(1), ctxt);
             // Subtract the operand from zero
             instrs.push((Label::None, Instruction::Clear(Register(0))));
-            instrs.push((Label::None, Instruction::Subtract(Register(0), Register(1), out)));
+            instrs.push((
+                Label::None,
+                Instruction::Subtract(Register(0), Register(1), out),
+            ));
             (instrs, all_except(out))
         }
     }
@@ -239,14 +246,15 @@ fn expand_expr(expr: syntax::Expression, out: Register,
 
 /// Expand `expr1` into `Register(0)` and `expr2` into `Register(1)`, attempting to
 /// minimize spills.
-fn expand_expr_pair(expr1: Expression, expr2: Expression,
-                    ctxt: &mut VariableContext) -> Program {
+fn expand_expr_pair(expr1: Expression, expr2: Expression, ctxt: &mut VariableContext) -> Program {
     let mut instrs: Program;
     let (lhs_frag, lhs_clob) = expand_expr(expr1, Register(0), ctxt);
     let (rhs_frag, rhs_clob) = expand_expr(expr2, Register(1), ctxt);
 
-    match (lhs_clob.contains(&Register(1)),
-           rhs_clob.contains(&Register(0))) {
+    match (
+        lhs_clob.contains(&Register(1)),
+        rhs_clob.contains(&Register(0)),
+    ) {
         (false, false) | (true, false) => {
             // Compute LHS then RHS. No spills necessary.
             instrs = lhs_frag;
@@ -269,12 +277,17 @@ fn expand_expr_pair(expr1: Expression, expr2: Expression,
     instrs
 }
 
-fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instruction)>,
-                    context: &mut VariableContext) {
+fn expand_statement(
+    stmt: syntax::Statement,
+    program: &mut Vec<(Label, Instruction)>,
+    context: &mut VariableContext,
+) {
     match stmt {
         Statement::Declaration(name, value, _) => {
             if let Expression::Literal(x) = value {
-                context.create(&name, x).expect("validation failed to catch redeclaration");
+                context
+                    .create(&name, x)
+                    .expect("validation failed to catch redeclaration");
             } else {
                 panic!("BUG: expected literal in declaration, got {:?}", value)
             }
@@ -288,7 +301,8 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
         }
 
         Statement::Assignment(name, expr, _) => {
-            let var = context.get(&name)
+            let var = context
+                .get(&name)
                 .expect("validation failed to catch assignment to undeclared variable");
             let (fragment, _) = expand_expr(expr, Register(0), context);
             program.extend(fragment);
@@ -300,23 +314,23 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             let mut then_block = Some(then_block);
 
             // Lower the predicate to a machine instruction with lhs and rhs
-            let (comparison, lhs, rhs): (fn(Label) -> Instruction, Expression, Expression)
-                     = match predicate {
-                BooleanExpr::Greater(l, r) => (Instruction::BranchGreater, l, r),
-                // Logical inversion of "greater than" is swapping the `then` and `else` blocks
-                BooleanExpr::LessOrEqual(l, r) => {
-                    std::mem::swap(&mut then_block, &mut else_block);
-                    (Instruction::BranchGreater, l, r)
-                }
+            let (comparison, lhs, rhs): (fn(Label) -> Instruction, Expression, Expression) =
+                match predicate {
+                    BooleanExpr::Greater(l, r) => (Instruction::BranchGreater, l, r),
+                    // Logical inversion of "greater than" is swapping the `then` and `else` blocks
+                    BooleanExpr::LessOrEqual(l, r) => {
+                        std::mem::swap(&mut then_block, &mut else_block);
+                        (Instruction::BranchGreater, l, r)
+                    }
 
-                BooleanExpr::NotEqual(l, r) => (Instruction::BranchNotEqual, l, r),
-                // Logical inversion of "branch if not equal" is swapping the
-                // `then` and `else` blocks.
-                BooleanExpr::Equal(l, r) => {
-                    std::mem::swap(&mut then_block, &mut else_block);
-                    (Instruction::BranchNotEqual, l, r)
-                }
-            };
+                    BooleanExpr::NotEqual(l, r) => (Instruction::BranchNotEqual, l, r),
+                    // Logical inversion of "branch if not equal" is swapping the
+                    // `then` and `else` blocks.
+                    BooleanExpr::Equal(l, r) => {
+                        std::mem::swap(&mut then_block, &mut else_block);
+                        (Instruction::BranchNotEqual, l, r)
+                    }
+                };
 
             let then_label = context.jump_target("t");
             let end_label = context.jump_target("ei");
@@ -344,7 +358,7 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
                     expand_statement(stmt, program, context);
                 }
             }
-            
+
             // Emit the end label
             program.push((end_label, Instruction::Nop));
         }
@@ -361,9 +375,12 @@ fn expand_statement(stmt: syntax::Statement, program: &mut Vec<(Label, Instructi
             ///
             /// The terminal instruction is a `Compare` of the `lhs` result in `r0`, `rhs`
             /// in `r1`.
-            fn compare_expanded(lhs: syntax::Expression, rhs: syntax::Expression,
-                                context: &mut VariableContext,
-                                program: &mut Vec<(Label, Instruction)>) {
+            fn compare_expanded(
+                lhs: syntax::Expression,
+                rhs: syntax::Expression,
+                context: &mut VariableContext,
+                program: &mut Vec<(Label, Instruction)>,
+            ) {
                 program.extend(expand_expr_pair(lhs, rhs, context));
                 program.push((Label::None, Instruction::Compare(Register(0), Register(1))));
             }

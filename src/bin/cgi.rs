@@ -1,7 +1,7 @@
 extern crate reduced_c as compiler;
 
-use std::{env, io};
 use std::io::Read;
+use std::{env, io};
 
 type RequestError = &'static str;
 
@@ -45,12 +45,10 @@ fn validate_request() -> Result<u64, RequestError> {
 
     match env::var("CONTENT_LENGTH") {
         Err(_) => Err("Content-Length must be specified"),
-        Ok(s) => {
-            match str::parse::<u64>(&s) {
-                Err(_) => Err("Content-Length must be a non-negative integer"),
-                Ok(len) if len > MAX_REQUEST => Err("Content-Length too large"),
-                Ok(len) => Ok(len)
-            }
-        }
+        Ok(s) => match str::parse::<u64>(&s) {
+            Err(_) => Err("Content-Length must be a non-negative integer"),
+            Ok(len) if len > MAX_REQUEST => Err("Content-Length too large"),
+            Ok(len) => Ok(len),
+        },
     }
 }

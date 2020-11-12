@@ -6,11 +6,11 @@ extern crate reduced_c as compiler;
 
 use docopt::Docopt;
 use std::fs::File;
-use std::io::{self, Read, Write, BufReader};
+use std::io::{self, BufReader, Read, Write};
 use std::process;
 
 mod logger {
-    use ::log::{Record, Level, Metadata, SetLoggerError, LevelFilter};
+    use ::log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
     struct StdoutLogger(Level);
 
     impl ::log::Log for StdoutLogger {
@@ -29,9 +29,7 @@ mod logger {
 
     pub fn init(ll: LevelFilter) -> Result<(), SetLoggerError> {
         ::log::set_max_level(ll);
-        ::log::set_boxed_logger(
-            Box::new(StdoutLogger(ll.to_level().unwrap()))
-        )
+        ::log::set_boxed_logger(Box::new(StdoutLogger(ll.to_level().unwrap())))
     }
 }
 
@@ -49,11 +47,14 @@ Options:
 
 pub fn main() {
     let args = Docopt::new(USAGE)
-        .and_then(|d| d.version(Some(env!("CARGO_PKG_VERSION").to_owned())).parse())
+        .and_then(|d| {
+            d.version(Some(env!("CARGO_PKG_VERSION").to_owned()))
+                .parse()
+        })
         .unwrap_or_else(|e| e.exit());
     debug!("{:?}", args);
-    
-    if cfg!(target_os="emscripten") {
+
+    if cfg!(target_os = "emscripten") {
         // Logging in javascript is a mess, so we'll just spew to stdout.
         // (Environment variables don't exist, for one.)
         use std::str::FromStr;
@@ -72,7 +73,7 @@ pub fn main() {
     let ref mut stderr = io::stderr();
     let src_filename = args.get_str("<src>");
     let infile: Box<dyn Read> = if src_filename == "-" {
-        if cfg!(target_os="emscripten") {
+        if cfg!(target_os = "emscripten") {
             panic!("Reading source code from standard input is not supported in javascript");
         }
         Box::new(io::stdin())
