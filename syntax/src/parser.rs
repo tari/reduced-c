@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use combine;
 use combine::{Parser, ParserExt, ParseError};
 use combine::primitives::Error as PError;
-use combine::primitives::{State, Stream, ParseResult, Consumed, SourcePosition, Positioner};
+use combine::primitives::{State, Stream, ParseResult, Consumed, SourcePosition};
 use combine::{sep_by, many, between, parser, optional, try, choice};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,7 +125,7 @@ impl<I> StateExt<I> for State<I> where I: Stream<Item=Token> {
     fn uncons_token(self) -> ParseResult<Token, I> {
         let mut state = self;
         loop {
-            let (tok, consumed) = try!(state.uncons());
+            let (tok, consumed) = state.uncons()?;
 
             match consumed {
                 Consumed::Empty(_) => return Err(Consumed::Empty(
@@ -562,7 +562,7 @@ pub fn parse<I: Iterator<Item=char> + Clone>(i: I) -> Result<super::Function, su
     let stream = TokenStream::new(i);
     let res = parser(function).parse(stream);
 
-    let (f, _) = try!(res);
+    let (f, _) = res?;
     Ok(f)
 }
 

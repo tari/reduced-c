@@ -24,7 +24,7 @@ impl std::fmt::Display for CompileError {
             &CompileError::Syntax(ref e) => write!(f, "ERROR {}", e),
             &CompileError::Validation(ref es) => {
                 for err in es {
-                    try!(write!(f, "ERROR {}", err));
+                    write!(f, "ERROR {}", err)?;
                 }
                 Ok(())
             }
@@ -33,12 +33,7 @@ impl std::fmt::Display for CompileError {
 }
 
 impl std::error::Error for CompileError {
-    fn description(&self) -> &str {
-        match self {
-            &CompileError::Syntax(ref e) => e.description(),
-            &CompileError::Validation(_) => "validation error(s)",
-        }
-    }
+    fn description(&self) -> &str { "" }
 }
 
 impl From<syntax::Error> for CompileError {
@@ -55,7 +50,7 @@ impl From<Vec<validate::ValidationError>> for CompileError {
 
 pub fn compile<R: Read>(mut src: R) -> Result<Vec<(instr::Label, instr::Instruction)>, CompileError> {
     debug!("Beginning parse");
-    let ast = try!(syntax::parse(&mut src));
+    let ast = syntax::parse(&mut src)?;
     debug!("Finished parsing source code");
 
     debug!("Checking AST validity");
@@ -79,11 +74,11 @@ pub fn compile<R: Read>(mut src: R) -> Result<Vec<(instr::Label, instr::Instruct
 pub fn print_assembly<W: Write>(program: &[(instr::Label, instr::Instruction)], mut dest: W) -> io::Result<()> {
     for &(ref label, ref instruction) in program {
         if let &instr::Label::Name(_) = label {
-            try!(write!(dest, "{}:\n", label));
+            write!(dest, "{}:\n", label)?;
         }
         match instruction {
             &instr::Instruction::Nop => { /* nops are only ever generated as filler */ }
-            i => try!(write!(dest, "    {}\n", i))
+            i => write!(dest, "    {}\n", i)?
         }
     }
     Ok(())

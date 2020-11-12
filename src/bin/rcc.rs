@@ -71,7 +71,7 @@ pub fn main() {
 
     let ref mut stderr = io::stderr();
     let src_filename = args.get_str("<src>");
-    let infile: Box<Read> = if src_filename == "-" {
+    let infile: Box<dyn Read> = if src_filename == "-" {
         if cfg!(target_os="emscripten") {
             panic!("Reading source code from standard input is not supported in javascript");
         }
